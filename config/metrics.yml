@@ -1,0 +1,26 @@
+version: 1
+cubes:
+  - name: interval_telemetry
+    sql: "SELECT * FROM interval_telemetry"
+    
+    measures:
+      - name: strike_hit_pct
+        sql: "SUM(strikes_landed) * 1.0 / NULLIF(SUM(strikes_attempted), 0)"
+        type: number
+
+      - name: avg_damage_per_strike
+        sql: "SUM(damage_dealt) * 1.0 / NULLIF(SUM(strikes_landed), 0)"
+        type: number
+
+      - name: takedown_def_pct
+        sql: "1.0 - (SUM(opponent_td_landed) * 1.0 / NULLIF(SUM(opponent_td_attempted), 0))"
+        type: number
+
+      - name: grapple_win_pct
+        sql: "SUM(grapple_positions_won) * 1.0 / NULLIF(SUM(grapple_exchanges), 0)"
+        type: number
+
+    dimensions:
+      - name: fighter_name
+        sql: fighter_name
+        type: string

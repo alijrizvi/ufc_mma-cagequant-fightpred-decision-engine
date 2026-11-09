@@ -1,0 +1,8 @@
+# .cursorrules - AI Data Science & Systems Standard
+
+- Stack: Python 3.11+, DuckDB, XGBoost, FastMCP, LangGraph, Streamlit, Pytest.
+- Architecture: 4-Pillar Stack (Data Science, Machine Learning, AI Engineering, MLOps).
+- Deep Modules: Build thick underlying logic in `src/engine/` and `src/agent/` behind clean, stable interfaces. Avoid shallow, single-function helper files.
+- Semantic Governance: Route query logic through pre-defined metrics in `config/metrics.yml` or DuckDB helper schemas. Never invent raw unconstrained SQL columns.
+- TDD Execution: Always write or reference failing boundary tests in `tests/test_guardrails.py` before modifying core engine code.
+- Decision Auditability: Track key design trade-offs in `config/decision-log.md`.
