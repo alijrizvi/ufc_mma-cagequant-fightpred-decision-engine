@@ -7,7 +7,7 @@ def test_stance_attribute_modifiers():
     profile = FighterCombatProfile(name="Justin Gaethje", punch_power=30.0, arm_block_pct=0.40, stamina_decay_rate=0.04)
     stance_engine = TacticalStanceEngine()
 
-    modified = stance_engine.apply_stance_modifiers(profile, TacticalStance.POWER_OVERDRIVE)
+    modified = stance_engine.apply_stance_modifiers(profile, TacticalStance.PRESSURE_BLITZ)
 
     assert modified.punch_power == pytest.approx(30.0 * 1.40)
     assert modified.stamina_decay_rate == pytest.approx(0.04 * 2.50)
@@ -23,4 +23,4 @@ def test_auto_stance_selection_rules():
 
     # Depleted Stamina -> Mastered Flow to preserve energy
     stance_low = stance_engine.determine_optimal_stance(hp=40.0, stamina=25.0, preferred_mode="aggressive")
-    assert stance_low == TacticalStance.MASTERED_FLOW
+    assert stance_low == TacticalStance.COUNTER_FLOW

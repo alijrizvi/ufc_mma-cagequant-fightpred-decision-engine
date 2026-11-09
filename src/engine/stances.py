@@ -9,8 +9,8 @@ from src.engine.stats import FighterCombatProfile
 
 class TacticalStance(Enum):
     STANDARD = "Standard Baseline"
-    POWER_OVERDRIVE = "Power Overdrive (Grade 3)"
-    MASTERED_FLOW = "Mastered Flow (Grade 4)"
+    PRESSURE_BLITZ = "Power Overdrive (Grade 3)"
+    COUNTER_FLOW = "Mastered Flow (Grade 4)"
     ASCENDED_SSJ2 = "Ascended SSJ2"
 
 @dataclass
@@ -30,13 +30,13 @@ class TacticalStanceEngine:
             block_multiplier=1.00,
             accuracy_multiplier=1.00
         ),
-        TacticalStance.POWER_OVERDRIVE: StanceMultipliers(
+        TacticalStance.PRESSURE_BLITZ: StanceMultipliers(
             power_multiplier=1.40,
             stamina_decay_multiplier=2.50,
             block_multiplier=0.75,
             accuracy_multiplier=0.85
         ),
-        TacticalStance.MASTERED_FLOW: StanceMultipliers(
+        TacticalStance.COUNTER_FLOW: StanceMultipliers(
             power_multiplier=1.05,
             stamina_decay_multiplier=0.60,
             block_multiplier=1.00,
@@ -84,10 +84,10 @@ class TacticalStanceEngine:
         if hp > 60.0 and stamina > 70.0:
             return TacticalStance.ASCENDED_SSJ2
         elif stamina < 35.0:
-            return TacticalStance.MASTERED_FLOW
+            return TacticalStance.COUNTER_FLOW
         elif preferred_mode == "power" and stamina >= 50.0:
-            return TacticalStance.POWER_OVERDRIVE
+            return TacticalStance.PRESSURE_BLITZ
         elif preferred_mode == "flow":
-            return TacticalStance.MASTERED_FLOW
+            return TacticalStance.COUNTER_FLOW
         else:
             return TacticalStance.STANDARD
