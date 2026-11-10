@@ -1,65 +1,95 @@
+"""
+Model Training Pipeline: Calibrated XGBoost with Group-Aware Splitting
+"""
+import pandas as pd
 import numpy as np
-from typing import Tuple
-from sklearn.metrics import brier_score_loss
-from src.engine.etl import OctagonDataEngine
-from src.engine.models import FightPredictorXGB
+import xgboost as xgb
+import joblib
+from pathlib import Path
+from sklearn.model_selection import GroupShuffleSplit
+from sklearn.metrics import brier_score_loss, log_loss, accuracy_score
+from sklearn.calibration import CalibratedClassifierCV
 
-def build_training_dataset(db_engine: OctagonDataEngine) -> Tuple[np.ndarray, np.ndarray]:
-    """Extracts 10-second interval states from DuckDB telemetry into X (features) and y (binary outcomes)."""
-    db_engine.seed_historical_lightweight_dataset()
-    
-    df_telemetry = db_engine.conn.execute("""
-        SELECT interval_id, round_num, fighter_name, strikes_landed, damage_dealt, clinch_seconds, ground_seconds
-        FROM interval_telemetry
-    """).df()
+class ModelTrainer:
+    def __init__(self, model_dir: str = "models/"):
+        self.model_dir = Path(model_dir)
+        self.model_dir.mkdir(parents=True, exist_ok=True)
+        
+        # XGBoost parameterized for probability estimation, not hard classification
+        self.base_estimator = xgb.XGBClassifier(
+            objective="binary:logistic",
+            n_estimators=150,
+            learning_rate=0.05,
+            max_depth=4,
+            subsample=0.8,
+            colsample_bytree=0.8,
+            random_state=42,
+            eval_metric="logloss"
+        )
+        
+        # Isotonic calibration corrects predicted probabilities to match empirical reality
+        self.calibrated_model = CalibratedClassifierCV(
+            estimator=self.base_estimator, 
+            method="isotonic", 
+            cv="prefit"
+        )
 
-    X_list, y_list = [], []
-    profile_a = db_engine.load_fighter_profile("Islam Makhachev")
-    profile_b = db_engine.load_fighter_profile("Carlos Prates")
-    predictor = FightPredictorXGB()
+    def train_and_evaluate(self, df: pd.DataFrame):
+        """
+        Executes group-split training, calibration, and BSS evaluation.
+        Expects 'fight_id' for grouping and 'bout_winner' (0 or 1) as the target.
+        """
+        print("Initializing Training Pipeline...")
+        
+        # 1. Define Features and True Target
+        X = df.drop(columns=['bout_winner'])
+        y = df['bout_winner']
+        groups = df['fight_id']
+        
+        # 2. Group-Aware Splitting (Prevents Data Leakage)
+        gss = GroupShuffleSplit(n_splits=1, test_size=0.2, random_state=42)
+        train_idx, test_idx = next(gss.split(X, y, groups=groups))
+        
+        X_train, X_test = X.iloc[train_idx], X.iloc[test_idx]
+        y_train, y_test = y.iloc[train_idx], y.iloc[test_idx]
+        
+        # Drop fight_id from feature space prior to training
+        X_train_features = X_train.drop(columns=['fight_id'], errors='ignore')
+        X_test_features = X_test.drop(columns=['fight_id'], errors='ignore')
+        
+        # 3. Train Base Model
+        print(f"Training on {len(X_train)} intervals, Testing on {len(X_test)} intervals...")
+        self.base_estimator.fit(X_train_features, y_train)
+        
+        # 4. Fit Calibrator on a validation subset (re-splitting train)
+        val_gss = GroupShuffleSplit(n_splits=1, test_size=0.2, random_state=42)
+        t_idx, v_idx = next(val_gss.split(X_train_features, y_train, groups=X_train['fight_id']))
+        self.calibrated_model.fit(X_train_features.iloc[v_idx], y_train.iloc[v_idx])
+        
+        # 5. Evaluate Brier Skill Score
+        calibrated_probs = self.calibrated_model.predict_proba(X_test_features)[:, 1]
+        
+        bs_model = brier_score_loss(y_test, calibrated_probs)
+        base_rate = y_train.mean()
+        bs_baseline = brier_score_loss(y_test, [base_rate] * len(y_test))
+        bss = 1 - (bs_model / bs_baseline)
+        
+        print("\n--- Model Evaluation (Out of Sample) ---")
+        print(f"Model Brier Score:    {bs_model:.4f}")
+        print(f"Baseline Brier Score: {bs_baseline:.4f} (Base Rate: {base_rate:.1%})")
+        print(f"Brier Skill Score:    {bss:.4f}")
+        
+        if bss > 0.0:
+            print("✅ Status: Model displays valid statistical signal.")
+            joblib.dump(self.calibrated_model, self.model_dir / "calibrated_xgb.pkl")
+        else:
+            print("❌ Status: Model underperforms naive guessing. Rejecting artifact.")
 
-    for _, row in df_telemetry.iterrows():
-        # Scenario 1: Red Corner Advantage State
-        state_a_lead = {
-            "round_num": int(row["round_num"]),
-            "time_seconds": int(row["interval_id"]) * 10,
-            "fighter_a_hp": 85.0,
-            "fighter_b_hp": 60.0,
-            "fighter_a_stamina": 90.0,
-            "fighter_b_stamina": 70.0,
-            "damage_dealt_a": float(row["damage_dealt"]),
-            "damage_dealt_b": 5.0
-        }
-        feat_a = predictor.extract_features(state_a_lead, profile_a, profile_b)[0]
-        X_list.append(feat_a)
-        y_list.append(1)
+        return bss
 
-        # Scenario 2: Blue Corner Advantage State
-        state_b_lead = {
-            "round_num": int(row["round_num"]),
-            "time_seconds": int(row["interval_id"]) * 10,
-            "fighter_a_hp": 55.0,
-            "fighter_b_hp": 90.0,
-            "fighter_a_stamina": 65.0,
-            "fighter_b_stamina": 95.0,
-            "damage_dealt_a": 4.0,
-            "damage_dealt_b": float(row["damage_dealt"])
-        }
-        feat_b = predictor.extract_features(state_b_lead, profile_a, profile_b)[0]
-        X_list.append(feat_b)
-        y_list.append(0)
-
-    return np.array(X_list), np.array(y_list)
-
-def train_xgboost_predictor(db_engine: OctagonDataEngine) -> Tuple[FightPredictorXGB, float]:
-    """Fits XGBoost classifier on interval telemetry matrix and returns (predictor, brier_score)."""
-    X, y = build_training_dataset(db_engine)
-    
-    predictor = FightPredictorXGB()
-    predictor.fit(X, y)
-
-    # Compute Brier score loss for probability calibration quality
-    y_probs = predictor.model.predict_proba(X)[:, 1]
-    brier = float(brier_score_loss(y, y_probs))
-
-    return predictor, round(brier, 4)
+if __name__ == "__main__":
+    # Example execution hook
+    # df = pd.read_csv("data/processed_telemetry.csv")
+    # trainer = ModelTrainer()
+    # trainer.train_and_evaluate(df)
+    pass

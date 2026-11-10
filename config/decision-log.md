@@ -21,12 +21,10 @@
 * **Decision:** Embedded DuckDB as the in-memory semantic analytical storage layer.
 * **Consequences:** Sub-millisecond SQL query execution, zero infrastructure deployment cost, and seamless integration with Pandas DataFrames.
 
-## ADR 004: Modular Architecture & TDD Pipeline
-* **Date:** 2026-11-02
-* **Status:** Accepted
-* **Context:** Monolithic scripts lead to regression errors and unstructured test coverage.
-* **Decision:** Adopt a strict modular directory structure (`src/engine/`) enforcing Test-Driven Development via `pytest`.
-* **Consequences:** 100% test coverage across automated unit tests, preventing regressions during UI and algorithm refactoring.
+### ADR 004: Test-Driven Verification & Test Coverage Standards
+- **Date:** 2026-08-15
+- **Status:** Accepted
+- **Decision:** Enforce 100% test coverage across core mathematical paths (DuckDB ETL metrics, XGBoost probability calibration, and Receipt Auditor verification) using `pytest --cov=src/engine --cov=src/agent`. Mocked LLM fixtures are used in CI to ensure zero-cost deterministic execution gates.
 
 ## ADR 005: Streamlit & Dual-Axis Plotly Trajectory Visuals
 * **Date:** 2026-11-03
