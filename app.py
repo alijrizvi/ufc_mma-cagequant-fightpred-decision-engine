@@ -52,7 +52,7 @@ st.markdown(
 
 
 @st.cache_resource(show_spinner="Initializing DuckDB Telemetry Engine...")
-def get_warehouse(_version: str = "v8_cagebot_cum_stack") -> OctagonDataEngine:
+def get_warehouse(_version: str = "v9_running_total_area") -> OctagonDataEngine:
     """Initializes and caches the DuckDB engine with seeded Lightweight roster data."""
     engine = OctagonDataEngine()
     engine.seed_historical_lightweight_dataset()
@@ -150,7 +150,7 @@ mc_summary = mc_engine.run_bout_simulation(prof_a, prof_b, max_rounds=max_rounds
 
 logs_df = pd.DataFrame([vars(log) for log in single_bout.interval_logs]).head(max_exchanges).copy()
 
-# Compute monotonically ascending cumulative damage output per fighter
+# Compute monotonically ascending running total damage dealt per fighter
 if not logs_df.empty:
     if "damage_dealt_a" in logs_df.columns and "damage_dealt_b" in logs_df.columns:
         logs_df["cum_dmg_a"] = logs_df["damage_dealt_a"].clip(lower=0.0).cumsum()
@@ -210,7 +210,7 @@ st.caption(
 def build_figures(
     df_slice: pd.DataFrame, total_len: int, max_total_dmg: float
 ) -> Tuple[go.Figure, go.Figure]:
-    """Constructs the live Win Probability Trajectory and 2-Fighter Cumulative Damage Stacked Bars."""
+    """Constructs the live Win Probability Trajectory and Running Total Damage Dealt Stacked Area chart."""
     x_max = max(2, total_len)
 
     # 1. Live Win Probability Trajectory
@@ -247,31 +247,35 @@ def build_figures(
         legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
     )
 
-    # 2. Cumulative Sum of Damage Output Differentiated by Fighter (Stacked Bar)
-    fig_stack = go.Figure()
-    fig_stack.add_trace(
-        go.Bar(
+    # 2. Running Total Damage Dealt (Stacked Cumulative Area Chart)
+    fig_area = go.Figure()
+    fig_area.add_trace(
+        go.Scatter(
             x=df_slice["interval_id"],
             y=df_slice["cum_dmg_a"],
             name=f"{fighter_a} (Red Corner)",
-            marker_color="#ef4444",
+            mode="lines",
+            stackgroup="one",
+            line=dict(width=2, color="#ef4444"),
+            fillcolor="rgba(239, 68, 68, 0.78)",
         )
     )
-    fig_stack.add_trace(
-        go.Bar(
+    fig_area.add_trace(
+        go.Scatter(
             x=df_slice["interval_id"],
             y=df_slice["cum_dmg_b"],
             name=f"{fighter_b} (Blue Corner)",
-            marker_color="#3b82f6",
+            mode="lines",
+            stackgroup="one",
+            line=dict(width=2, color="#3b82f6"),
+            fillcolor="rgba(59, 130, 246, 0.78)",
         )
     )
-    fig_stack.update_layout(
-        barmode="stack",
-        bargap=0.18,
-        title="2. Cumulative Damage Output by Fighter (Stacked)",
+    fig_area.update_layout(
+        title="2. Total Fight Output",
         xaxis_title="10-Sec Combat Exchange",
         yaxis_title="Cumulative Damage Dealt",
-        xaxis=dict(range=[0.5, x_max + 0.5]),
+        xaxis=dict(range=[1, x_max]),
         yaxis=dict(range=[0, max(100.0, max_total_dmg * 1.1)]),
         template="plotly_dark",
         height=430,
@@ -279,14 +283,14 @@ def build_figures(
         legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
     )
 
-    return fig_prob, fig_stack
+    return fig_prob, fig_area
 
 
 # --- LIVE PROGRESSIVE RENDERING SLOTS ---
 clock_slot = st.empty()
 col_left, col_right = st.columns(2)
 slot_prob = col_left.empty()
-slot_stack = col_right.empty()
+slot_area = col_right.empty()
 
 if not logs_df.empty:
     total_steps = len(logs_df)
@@ -305,9 +309,9 @@ if not logs_df.empty:
             clock_slot.caption(
                 f"⏱️ **Live Octagon Clock:** Round {curr_rd} • Exchange {curr_ex} / {total_steps}"
             )
-            fig_prob, fig_stack = build_figures(df_slice, total_steps, max_combined_dmg)
+            fig_prob, fig_area = build_figures(df_slice, total_steps, max_combined_dmg)
             slot_prob.plotly_chart(fig_prob, use_container_width=True, key=f"prob_live_{frame_idx}")
-            slot_stack.plotly_chart(fig_stack, use_container_width=True, key=f"stack_live_{frame_idx}")
+            slot_area.plotly_chart(fig_area, use_container_width=True, key=f"area_live_{frame_idx}")
             time.sleep(playback_delay)
     else:
         curr_ex = int(logs_df["interval_id"].iloc[-1])
@@ -315,9 +319,9 @@ if not logs_df.empty:
         clock_slot.caption(
             f"⏱️ **Final Octagon Clock:** Round {curr_rd} • Exchange {curr_ex} / {total_steps}"
         )
-        fig_prob, fig_stack = build_figures(logs_df, total_steps, max_combined_dmg)
+        fig_prob, fig_area = build_figures(logs_df, total_steps, max_combined_dmg)
         slot_prob.plotly_chart(fig_prob, use_container_width=True, key="prob_static")
-        slot_stack.plotly_chart(fig_stack, use_container_width=True, key="stack_static")
+        slot_area.plotly_chart(fig_area, use_container_width=True, key="area_static")
 
 
 # ==============================================================================
