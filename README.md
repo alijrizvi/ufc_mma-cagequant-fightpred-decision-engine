@@ -1,14 +1,14 @@
 # 🥊 [Production-Grade UFC Decision Intelligence Platform](https://ufc-mma-cagequant-fightpred-decision-engine.streamlit.app/)
 
-[! [CI Pipeline]([https://github.com/your-username/cagequant-engine/actions/workflows/ci.yml/badge.svg)](https://github.com/your-username/cagequant-engine/actions)](https://github.com/your-username/cagequant-engine/actions/workflows/ci.yml/badge.svg)](https://github.com/your-username/cagequant-engine/actions))
+[![CI Pipeline]([https://github.com/your-username/cagequant-engine/actions/workflows/ci.yml/badge.svg)](https://github.com/your-username/cagequant-engine/actions)](https://github.com/your-username/cagequant-engine/actions/workflows/ci.yml/badge.svg)](https://github.com/your-username/cagequant-engine/actions))
 
-[! [Python Version]([https://img.shields.io/badge/python-3.11-blue.svg)](https://www.python.org/)](https://img.shields.io/badge/python-3.11-blue.svg)](https://www.python.org/))
+[![Python Version]([https://img.shields.io/badge/python-3.11-blue.svg)](https://www.python.org/)](https://img.shields.io/badge/python-3.11-blue.svg)](https://www.python.org/)
 
-[! [Framework]([https://img.shields.io/badge/Agentic%20AI-FastMCP-green.svg)](https://modelcontextprotocol.io/)](https://img.shields.io/badge/Agentic%20AI-FastMCP-green.svg)](https://modelcontextprotocol.io/))
+[![Framework]([https://img.shields.io/badge/Agentic%20AI-FastMCP-green.svg)](https://modelcontextprotocol.io/)](https://img.shields.io/badge/Agentic%20AI-FastMCP-green.svg)](https://modelcontextprotocol.io/)
 
-[! [Testing]([https://img.shields.io/badge/pytest-21%20passed-success.svg)](https://docs.pytest.org/)](https://img.shields.io/badge/pytest-21%20passed-success.svg)](https://docs.pytest.org/))
+[![Testing]([https://img.shields.io/badge/pytest-21%20passed-success.svg)](https://docs.pytest.org/)](https://img.shields.io/badge/pytest-21%20passed-success.svg)](https://docs.pytest.org/)
 
-[! [Docker]([https://img.shields.io/badge/docker-ready-blue.svg)](https://www.docker.com/)](https://img.shields.io/badge/docker-ready-blue.svg)](https://www.docker.com/))
+[![Docker]([https://img.shields.io/badge/docker-ready-blue.svg)](https://www.docker.com/)](https://img.shields.io/badge/docker-ready-blue.svg)](https://www.docker.com/)
 
 An enterprise-grade, TDD-backed Decision Intelligence Engine designed for 10-second discrete combat interval telemetry forecasting, stochastic Monte Carlo risk modeling, and receipt-verified Agentic Analytics.
 
