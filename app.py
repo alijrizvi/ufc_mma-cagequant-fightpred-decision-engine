@@ -1,4 +1,5 @@
 import time
+from typing import Tuple
 import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
@@ -14,9 +15,44 @@ st.set_page_config(
     layout="wide",
 )
 
+# --- FLOATING ROBOT CHATBOT STYLING ---
+st.markdown(
+    """
+    <style>
+    /* Anchor the floating robot popover button in the bottom-right corner */
+    div[data-testid="stPopover"] {
+        position: fixed;
+        bottom: 28px;
+        right: 28px;
+        z-index: 9999;
+    }
+    div[data-testid="stPopover"] > button {
+        width: 64px;
+        height: 64px;
+        border-radius: 50%;
+        font-size: 30px;
+        background: linear-gradient(135deg, #ef4444 0%, #991b1b 100%);
+        color: white;
+        border: 2px solid #fca5a5;
+        box-shadow: 0 8px 24px rgba(239, 68, 68, 0.45);
+        transition: transform 0.2s ease, box-shadow 0.2s ease;
+    }
+    div[data-testid="stPopover"] > button:hover {
+        transform: scale(1.08);
+        box-shadow: 0 12px 30px rgba(239, 68, 68, 0.65);
+    }
+    /* Hide the default downward caret icon inside the circular robot button */
+    div[data-testid="stPopover"] > button svg {
+        display: none;
+    }
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
+
 
 @st.cache_resource(show_spinner="Initializing DuckDB Telemetry Engine...")
-def get_warehouse(_version: str = "v6_animated_keys") -> OctagonDataEngine:
+def get_warehouse(_version: str = "v7_floating_copilot_stacked") -> OctagonDataEngine:
     """Initializes and caches the DuckDB engine with seeded Lightweight roster data."""
     engine = OctagonDataEngine()
     engine.seed_historical_lightweight_dataset()
@@ -84,7 +120,7 @@ with st.sidebar:
 
     st.divider()
     st.subheader("🎬 Animated Fight Playback")
-    live_playback = st.toggle("Enable Animated Playback", value=True)
+    live_playback = st.toggle("Enable Live Accumulation Playback", value=True)
     speed_label = st.select_slider(
         "Playback Speed",
         options=["0.5x (Slow-Mo)", "1x (Tactical)", "2x (Fast)", "5x (Turbo)"],
@@ -92,14 +128,14 @@ with st.sidebar:
         disabled=not live_playback,
     )
     speed_map = {
-        "0.5x (Slow-Mo)": 0.20,
-        "1x (Tactical)": 0.10,
-        "2x (Fast)": 0.04,
-        "5x (Turbo)": 0.015,
+        "0.5x (Slow-Mo)": 0.22,
+        "1x (Tactical)": 0.12,
+        "2x (Fast)": 0.05,
+        "5x (Turbo)": 0.02,
     }
     playback_delay = speed_map[speed_label]
 
-    replay_btn = st.button("▶️ Replay / Resimulate Bout", type="primary", use_container_width=True)
+    st.button("▶️ Replay / Resimulate Bout", type="primary", use_container_width=True)
 
 # --- LOAD FIGHTER PROFILES ---
 prof_a = warehouse.load_fighter_profile(fighter_a)
@@ -112,7 +148,12 @@ single_bout = sim_engine.run_full_fight(prof_a, prof_b, max_rounds=max_rounds, s
 mc_engine = MonteCarloRiskEngine(num_simulations=num_simulations)
 mc_summary = mc_engine.run_bout_simulation(prof_a, prof_b, max_rounds=max_rounds)
 
-logs_df = pd.DataFrame([vars(log) for log in single_bout.interval_logs]).head(max_exchanges)
+logs_df = pd.DataFrame([vars(log) for log in single_bout.interval_logs]).head(max_exchanges).copy()
+
+# Compute cumulative damage output for the stacked bar accumulator
+if not logs_df.empty:
+    logs_df["cum_dmg_a"] = (100.0 - logs_df["fighter_b_hp"]).clip(lower=0.0)
+    logs_df["cum_dmg_b"] = (100.0 - logs_df["fighter_a_hp"]).clip(lower=0.0)
 
 # --- TOP PROBABILITY BREAKDOWN METRICS ---
 st.subheader("📊 Stochastic Win & Method Probability Breakdown")
@@ -152,191 +193,174 @@ st.caption(
 )
 
 
-def render_charts(df_slice: pd.DataFrame, step_key: str) -> None:
-    """Renders the 3 primary telemetry and Monte Carlo diagnostic charts with unique keys."""
-    current_exchange = int(df_slice["interval_id"].iloc[-1])
-    current_round = ((current_exchange - 1) // 30) + 1
-    st.caption(f"⏱️ **Octagon Clock:** Round {current_round} • Exchange {current_exchange} / {len(logs_df)}")
+def build_figures(df_slice: pd.DataFrame, total_len: int) -> Tuple[go.Figure, go.Figure]:
+    """Constructs the live Win Probability Trajectory and Stacked Damage/HP Accumulator figures."""
+    x_max = max(2, total_len)
 
-    c1, c2, c3 = st.columns(3)
+    # 1. Live Win Probability Trajectory
+    fig_prob = go.Figure()
+    fig_prob.add_trace(
+        go.Scatter(
+            x=df_slice["interval_id"],
+            y=df_slice["p_win_a"] * 100.0,
+            name=fighter_a,
+            mode="lines+markers",
+            marker=dict(size=5),
+            line=dict(width=3, color="#ef4444"),
+        )
+    )
+    fig_prob.add_trace(
+        go.Scatter(
+            x=df_slice["interval_id"],
+            y=(1.0 - df_slice["p_win_a"]) * 100.0,
+            name=fighter_b,
+            mode="lines+markers",
+            marker=dict(size=5),
+            line=dict(width=3, color="#3b82f6"),
+        )
+    )
+    fig_prob.update_layout(
+        title="1. Live Win Probability Trajectory (%)",
+        xaxis_title="10-Sec Combat Exchange",
+        yaxis_title="Win Probability (%)",
+        xaxis=dict(range=[1, x_max]),
+        yaxis=dict(range=[0, 100]),
+        template="plotly_dark",
+        height=430,
+        margin=dict(l=20, r=20, t=50, b=25),
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+    )
 
-    # Chart 1: Live Win Probability Trajectory
-    with c1:
-        fig_prob = go.Figure()
-        fig_prob.add_trace(
-            go.Scatter(
-                x=df_slice["interval_id"],
-                y=df_slice["p_win_a"] * 100.0,
-                name=fighter_a,
-                mode="lines+markers",
-                marker=dict(size=4),
-                line=dict(width=3, color="#ef4444"),
-            )
+    # 2. Stacked Bar Accumulator: Cumulative Damage Output & Remaining HP Pools
+    fig_stack = go.Figure()
+    fig_stack.add_trace(
+        go.Bar(
+            x=df_slice["interval_id"],
+            y=df_slice["cum_dmg_a"],
+            name=f"{fighter_a} Cum. Damage Dealt",
+            marker_color="#ef4444",
         )
-        fig_prob.add_trace(
-            go.Scatter(
-                x=df_slice["interval_id"],
-                y=(1.0 - df_slice["p_win_a"]) * 100.0,
-                name=fighter_b,
-                mode="lines+markers",
-                marker=dict(size=4),
-                line=dict(width=3, color="#3b82f6"),
-            )
+    )
+    fig_stack.add_trace(
+        go.Bar(
+            x=df_slice["interval_id"],
+            y=df_slice["cum_dmg_b"],
+            name=f"{fighter_b} Cum. Damage Dealt",
+            marker_color="#3b82f6",
         )
-        fig_prob.update_layout(
-            title="1. Live Win Probability Trajectory (%)",
-            xaxis_title="10-Sec Combat Exchange",
-            yaxis_title="Win Prob (%)",
-            xaxis=dict(range=[1, max(2, len(logs_df))]),
-            yaxis=dict(range=[0, 100]),
-            template="plotly_dark",
-            height=360,
-            margin=dict(l=20, r=20, t=45, b=20),
-            legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+    )
+    fig_stack.add_trace(
+        go.Bar(
+            x=df_slice["interval_id"],
+            y=df_slice["fighter_a_hp"],
+            name=f"{fighter_a} Remaining HP",
+            marker_color="rgba(252, 165, 165, 0.35)",
         )
-        st.plotly_chart(fig_prob, use_container_width=True, key=f"prob_chart_{step_key}")
+    )
+    fig_stack.add_trace(
+        go.Bar(
+            x=df_slice["interval_id"],
+            y=df_slice["fighter_b_hp"],
+            name=f"{fighter_b} Remaining HP",
+            marker_color="rgba(147, 197, 253, 0.35)",
+        )
+    )
+    fig_stack.update_layout(
+        barmode="stack",
+        title="2. Stacked Damage Output & HP Pool Accumulator",
+        xaxis_title="10-Sec Combat Exchange",
+        yaxis_title="Cumulative Damage + Remaining HP",
+        xaxis=dict(range=[0.5, x_max + 0.5]),
+        yaxis=dict(range=[0, 210]),
+        template="plotly_dark",
+        height=430,
+        margin=dict(l=20, r=20, t=50, b=25),
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+    )
 
-    # Chart 2: HP & Stamina Attrition Curves
-    with c2:
-        fig_attr = go.Figure()
-        fig_attr.add_trace(
-            go.Scatter(
-                x=df_slice["interval_id"],
-                y=df_slice["fighter_a_hp"],
-                name=f"{fighter_a} HP",
-                mode="lines",
-                line=dict(width=2.5, color="#ef4444"),
-            )
-        )
-        fig_attr.add_trace(
-            go.Scatter(
-                x=df_slice["interval_id"],
-                y=df_slice["fighter_b_hp"],
-                name=f"{fighter_b} HP",
-                mode="lines",
-                line=dict(width=2.5, color="#3b82f6"),
-            )
-        )
-        if "fighter_a_stamina" in df_slice.columns:
-            fig_attr.add_trace(
-                go.Scatter(
-                    x=df_slice["interval_id"],
-                    y=df_slice["fighter_a_stamina"],
-                    name=f"{fighter_a} Stam",
-                    mode="lines",
-                    line=dict(width=1.5, dash="dot", color="#fca5a5"),
-                )
-            )
-        if "fighter_b_stamina" in df_slice.columns:
-            fig_attr.add_trace(
-                go.Scatter(
-                    x=df_slice["interval_id"],
-                    y=df_slice["fighter_b_stamina"],
-                    name=f"{fighter_b} Stam",
-                    mode="lines",
-                    line=dict(width=1.5, dash="dot", color="#93c5fd"),
-                )
-            )
-        fig_attr.update_layout(
-            title="2. Health & Stamina Attrition",
-            xaxis_title="10-Sec Combat Exchange",
-            yaxis_title="Remaining Pool",
-            xaxis=dict(range=[1, max(2, len(logs_df))]),
-            yaxis=dict(range=[0, 105]),
-            template="plotly_dark",
-            height=360,
-            margin=dict(l=20, r=20, t=45, b=20),
-            legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
-        )
-        st.plotly_chart(fig_attr, use_container_width=True, key=f"attr_chart_{step_key}")
-
-    # Chart 3: Monte Carlo Outcome & Finish Method Distribution
-    with c3:
-        categories = [f"{fighter_a} Win", f"{fighter_b} Win", "KO/TKO", "Submission", "Decision"]
-        values = [win_rate_a, win_rate_b, ko_pct, sub_pct, dec_pct]
-        colors = ["#ef4444", "#3b82f6", "#f59e0b", "#10b981", "#8b5cf6"]
-
-        fig_mc = go.Figure(
-            data=[
-                go.Bar(
-                    x=categories,
-                    y=values,
-                    marker_color=colors,
-                    text=[f"{v:.1f}%" for v in values],
-                    textposition="auto",
-                )
-            ]
-        )
-        fig_mc.update_layout(
-            title=f"3. Monte Carlo Distribution (N={num_simulations})",
-            yaxis_title="Probability (%)",
-            yaxis=dict(range=[0, 105]),
-            template="plotly_dark",
-            height=360,
-            margin=dict(l=20, r=20, t=45, b=20),
-        )
-        st.plotly_chart(fig_mc, use_container_width=True, key=f"mc_chart_{step_key}")
+    return fig_prob, fig_stack
 
 
-# --- RENDER 3 CHARTS (ANIMATED PLAYBACK OR STATIC) ---
-chart_placeholder = st.empty()
+# --- LIVE PROGRESSIVE RENDERING SLOTS ---
+clock_slot = st.empty()
+col_left, col_right = st.columns(2)
+slot_prob = col_left.empty()
+slot_stack = col_right.empty()
 
 if not logs_df.empty:
+    total_steps = len(logs_df)
     if live_playback:
-        step_size = max(1, len(logs_df) // 30)
-        for frame_num, end_idx in enumerate(range(step_size, len(logs_df) + step_size, step_size)):
-            with chart_placeholder.container():
-                render_charts(logs_df.iloc[:end_idx], step_key=f"frame_{frame_num}")
+        step_size = max(1, total_steps // 35)
+        frame_indices = list(range(step_size, total_steps, step_size))
+        if not frame_indices or frame_indices[-1] != total_steps:
+            frame_indices.append(total_steps)
+
+        for frame_idx, end_idx in enumerate(frame_indices):
+            df_slice = logs_df.iloc[:end_idx]
+            curr_ex = int(df_slice["interval_id"].iloc[-1])
+            curr_rd = ((curr_ex - 1) // 30) + 1
+            clock_slot.caption(
+                f"⏱️ **Live Octagon Clock:** Round {curr_rd} • Exchange {curr_ex} / {total_steps}"
+            )
+            fig_prob, fig_stack = build_figures(df_slice, total_steps)
+            slot_prob.plotly_chart(fig_prob, use_container_width=True, key=f"prob_live_{frame_idx}")
+            slot_stack.plotly_chart(fig_stack, use_container_width=True, key=f"stack_live_{frame_idx}")
             time.sleep(playback_delay)
     else:
-        with chart_placeholder.container():
-            render_charts(logs_df, step_key="static_final")
+        curr_ex = int(logs_df["interval_id"].iloc[-1])
+        curr_rd = ((curr_ex - 1) // 30) + 1
+        clock_slot.caption(
+            f"⏱️ **Final Octagon Clock:** Round {curr_rd} • Exchange {curr_ex} / {total_steps}"
+        )
+        fig_prob, fig_stack = build_figures(logs_df, total_steps)
+        slot_prob.plotly_chart(fig_prob, use_container_width=True, key="prob_static")
+        slot_stack.plotly_chart(fig_stack, use_container_width=True, key="stack_static")
 
-st.divider()
 
 # ==============================================================================
-# INTEGRATED AGENTIC DECISION COPILOT (SINGLE-PAGE INTERACTIVE WORKSPACE)
+# FLOATING ROBOT AGENTIC DECISION COPILOT (BOTTOM-RIGHT POPOVER)
 # ==============================================================================
-st.subheader("🤖 Agentic Decision Copilot (Receipt-Verified FastMCP)")
-st.caption(
-    "Ask tactical or risk-distribution questions about the active matchup. Every numeric claim "
-    "is cross-checked against the Monte Carlo & DuckDB ground-truth receipt (±1.5% tolerance)."
-)
+with st.popover("🤖", help="Open CageQuant Agentic Decision Copilot"):
+    st.markdown("### 🤖 CageQuant Tactical Copilot")
+    st.caption(
+        "Receipt-Verified FastMCP Analyst • Numeric claims verified against ground truth (±1.5%)."
+    )
 
-col_q, col_opts = st.columns([3, 1])
-with col_q:
-    user_prompt = st.text_input(
-        "Ask the Copilot",
+    user_prompt = st.text_area(
+        "Ask about matchup risk, pacing, or finish probability:",
         value=(
             f"Compare the finish risk and stamina efficiency between {fighter_a} "
             f"and {fighter_b} over {max_rounds} rounds."
         ),
-    )
-with col_opts:
-    use_mock = st.checkbox("Deterministic Mock Mode", value=True)
-    force_hallucination = st.checkbox("Test Hallucination Gate", value=False)
-
-if st.button("🧠 Run Audited Copilot Analysis", type="primary"):
-    copilot = DecisionCopilot(use_mock=use_mock)
-    result = copilot.execute_fight_analysis(
-        fighter_a=fighter_a,
-        fighter_b=fighter_b,
-        user_query=user_prompt,
-        force_hallucination=force_hallucination,
-        num_simulations=num_simulations,
+        height=85,
     )
 
-    if result.status == "success":
-        st.success("✅ Auditor Verification Passed — All statistical claims match simulation ground truth.")
-        st.markdown(result.narrative)
-    else:
-        st.error(f"🛑 Output Blocked by Receipt Auditor ({result.status.upper()})")
-        st.markdown(result.narrative)
-        if result.violations:
-            st.warning("Audit Violations Detected:")
-            for violation in result.violations:
-                st.write(f"- {violation}")
+    col_c1, col_c2 = st.columns(2)
+    with col_c1:
+        use_mock = st.checkbox("Mock Narrator ($0 Cost)", value=True)
+    with col_c2:
+        force_hallucination = st.checkbox("Test Auditor Gate", value=False)
 
-    if result.ground_truth:
-        with st.expander("🧾 Inspect Verified MCP Ground-Truth Receipt"):
-            st.json(result.ground_truth)
+    if st.button("🧠 Analyze Matchup", type="primary", use_container_width=True):
+        copilot = DecisionCopilot(use_mock=use_mock)
+        result = copilot.execute_fight_analysis(
+            fighter_a=fighter_a,
+            fighter_b=fighter_b,
+            user_query=user_prompt,
+            force_hallucination=force_hallucination,
+            num_simulations=num_simulations,
+        )
+
+        if result.status == "success":
+            st.success("✅ Auditor Passed (100% Ground-Truth Verified)")
+            st.markdown(result.narrative)
+        else:
+            st.error(f"🛑 Blocked by Auditor ({result.status.upper()})")
+            st.markdown(result.narrative)
+            if result.violations:
+                for violation in result.violations:
+                    st.warning(f"- {violation}")
+
+        if result.ground_truth:
+            with st.expander("🧾 View MCP Ground-Truth Receipt"):
+                st.json(result.ground_truth)
