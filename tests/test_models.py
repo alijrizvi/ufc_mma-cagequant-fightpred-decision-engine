@@ -1,8 +1,10 @@
-import pytest
 import numpy as np
+import pytest
+
 # Importing FightPredictorXGB before implementing it to force the Red TDD state
 from src.engine.models import FightPredictorXGB
 from src.engine.stats import FighterCombatProfile
+
 
 def test_feature_vector_extraction():
     """Enforces that a 10-second interval state maps into a valid non-null numeric feature vector."""

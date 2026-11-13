@@ -1,11 +1,14 @@
 import random
 from dataclasses import dataclass
-from typing import List, Dict, Any, Tuple, Optional
+from typing import Dict, List, Optional, Tuple
 
-from src.engine.stats import FighterCombatProfile, CombatPillarEngine
-from src.engine.models import FightPredictorXGB
+import pandas as pd
+
 from src.engine.etl import OctagonDataEngine
+from src.engine.models import FightPredictorXGB
+from src.engine.stats import CombatPillarEngine, FighterCombatProfile
 from src.engine.train import train_xgboost_predictor
+
 
 @dataclass
 class FighterState:
@@ -42,6 +45,21 @@ class SimulationResult:
     scores: Dict[str, List[int]]
     interval_logs: List[IntervalLog]
 
+_MODEL_CACHE: dict[int, tuple] = {}
+
+
+def _cached_predictor(db_engine):
+    """Trains the XGBoost predictor once per distinct training frame, then reuses it.
+
+    Without this, every Monte Carlo run (and every Streamlit rerun) retrained the model.
+    """
+    frame = db_engine.get_training_frame()
+    key = int(pd.util.hash_pandas_object(frame, index=False).sum())
+    if key not in _MODEL_CACHE:
+        _MODEL_CACHE[key] = train_xgboost_predictor(frame)
+    return _MODEL_CACHE[key]
+
+
 class OctagonSimulationEngine:
     """Core 10-second discrete interval simulation engine with stochastic variance and XGBoost integration."""
 
@@ -55,12 +73,11 @@ class OctagonSimulationEngine:
         if predictor is not None:
             self.predictor = predictor
             self.brier_score = 0.0
-        elif db_engine is not None:
-            self.predictor, self.brier_score = train_xgboost_predictor(db_engine)
         else:
-            default_db = OctagonDataEngine()
-            default_db.seed_historical_lightweight_dataset()
-            self.predictor, self.brier_score = train_xgboost_predictor(default_db)
+            if db_engine is None:
+                db_engine = OctagonDataEngine()
+                db_engine.seed_historical_lightweight_dataset()
+            self.predictor, self.brier_score = _cached_predictor(db_engine)
 
     def apply_interval_damage(
         self, 

@@ -1,8 +1,10 @@
-import numpy as np
 from dataclasses import dataclass
-from typing import Dict, Any, List
-from src.engine.stats import FighterCombatProfile
+from typing import Dict, List
+
+import numpy as np
+
 from src.engine.simulation import OctagonSimulationEngine
+from src.engine.stats import FighterCombatProfile
 
 # Batch Simulations (n = 1,000) for any Fight Matchup to determine
 # the probability (distribution %s) of each fighter winning

@@ -1,6 +1,6 @@
-import pytest
-from src.engine.etl import OctagonDataEngine
 from src.engine.archetypes import FighterArchetypeEngine
+from src.engine.etl import OctagonDataEngine
+
 
 def test_kmeans_archetype_clustering():
     """Enforces that fighters are correctly assigned to one of four tactical archetypes."""

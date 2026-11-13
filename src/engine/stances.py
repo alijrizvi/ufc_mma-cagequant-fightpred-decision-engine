@@ -1,6 +1,7 @@
-from enum import Enum
 from dataclasses import dataclass
-from typing import Dict, Any
+from enum import Enum
+from typing import Dict
+
 from src.engine.stats import FighterCombatProfile
 
 # Like Dragon Ball Z (probably my most Nostalgic and Fav Anime - Tied now with ATLA and ofc Pokemon)

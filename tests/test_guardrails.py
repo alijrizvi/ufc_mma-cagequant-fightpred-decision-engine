@@ -1,7 +1,6 @@
-import pytest
-import time
-from src.engine.simulation import OctagonSimulationEngine, FighterState
+from src.engine.simulation import FighterState, OctagonSimulationEngine
 from src.engine.stats import FighterCombatProfile
+
 
 def test_fighter_initial_hp_boundary():
     """Enforces that both fighters initialize at exactly 100.0 HP."""

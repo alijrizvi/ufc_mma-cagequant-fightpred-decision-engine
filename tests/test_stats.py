@@ -1,5 +1,7 @@
 import pytest
-from src.engine.stats import FighterCombatProfile, CombatPillarEngine
+
+from src.engine.stats import CombatPillarEngine, FighterCombatProfile
+
 
 def test_strike_damage_mitigation_calculation():
     """Enforces that strong defensive mitigation reduces raw strike damage correctly."""

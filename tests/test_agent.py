@@ -1,7 +1,7 @@
-import pytest
-from src.agent.tools import query_semantic_metric, run_stochastic_simulation
 from src.agent.auditor import AnalyticalAuditor
 from src.agent.copilot import AgenticCopilot
+from src.agent.tools import query_semantic_metric, run_stochastic_simulation
+
 
 def test_fastmcp_tools_return_structured_dict():
     """Enforces that FastMCP analytical tools return structured ground-truth dictionaries."""
@@ -31,9 +31,10 @@ def test_analytical_auditor_verification():
     assert len(violations_h) > 0
 
 def test_copilot_mocked_execution():
-    """Enforces that AgenticCopilot executes orchestration loop and passes auditor check."""
+    """AgenticCopilot runs the harness loop and passes the auditor with the mock narrator."""
     copilot = AgenticCopilot(use_mock=True)
-    brief = copilot.generate_tactical_brief("Islam Makhachev", "Carlos Prates")
-    
-    assert isinstance(brief.summary, str)
-    assert brief.auditor_passed is True
+    result = copilot.execute_fight_analysis("Islam Makhachev", "Carlos Prates", num_simulations=100)
+
+    assert result.status == "success"
+    assert result.attempts == 1
+    assert result.violations == []

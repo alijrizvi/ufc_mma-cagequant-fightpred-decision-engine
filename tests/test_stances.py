@@ -1,6 +1,8 @@
 import pytest
-from src.engine.stats import FighterCombatProfile
+
 from src.engine.stances import TacticalStance, TacticalStanceEngine
+from src.engine.stats import FighterCombatProfile
+
 
 def test_stance_attribute_modifiers():
     """Enforces that stance multipliers correctly alter base combat parameters."""

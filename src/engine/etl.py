@@ -1,3 +1,5 @@
+import numpy as np
+DATA_PROVENANCE = "synthetic"  # shown in the UI: outcomes are simulated, not real bouts
 import duckdb
 import pandas as pd
 from typing import Dict, Any, Optional
@@ -144,3 +146,40 @@ class OctagonDataEngine:
             "takedown_def_pct": round(result[2] or 0.75, 4) if result and result[2] is not None else 0.75,
             "grapple_win_pct": round(result[3] or 0.50, 4) if result and result[3] is not None else 0.50
         }
+
+    def get_training_frame(
+        self, n_fights: int = 1000, intervals_per_fight: int = 6, seed: int = 42
+    ) -> pd.DataFrame:
+        """Builds a SYNTHETIC grouped training frame from fighter profiles."""
+        rng = np.random.default_rng(seed)
+        rows = []
+        for fight_id in range(1, n_fights + 1):
+            advantage = rng.normal(0.0, 1.0)
+            logit = 1.4 * advantage + rng.normal(0.0, 0.5)
+            p_win = 1.0 / (1.0 + np.exp(-logit))
+            winner = int(rng.random() < p_win)
+            hp_a, hp_b = 100.0, 100.0
+            stam_a, stam_b = 100.0, 100.0
+            for step in range(1, intervals_per_fight + 1):
+                dmg_a = max(0.0, rng.normal(8.0 + 2.5 * advantage, 3.0))
+                dmg_b = max(0.0, rng.normal(8.0 - 2.5 * advantage, 3.0))
+                hp_a = max(0.0, hp_a - dmg_b)
+                hp_b = max(0.0, hp_b - dmg_a)
+                stam_a = max(10.0, stam_a - rng.uniform(1.5, 3.5))
+                stam_b = max(10.0, stam_b - rng.uniform(1.5, 3.5))
+                rows.append(
+                    {
+                        "fight_id": fight_id,
+                        "round_num": (step - 1) // 2 + 1,
+                        "fighter_a_hp": hp_a,
+                        "fighter_b_hp": hp_b,
+                        "fighter_a_stamina": stam_a,
+                        "fighter_b_stamina": stam_b,
+                        "damage_diff": dmg_a - dmg_b,
+                        "power_diff": advantage * 5.0,
+                        "hp_delta": hp_a - hp_b,
+                        "stamina_delta": stam_a - stam_b,
+                        "bout_winner": winner,
+                    }
+                )
+        return pd.DataFrame(rows)

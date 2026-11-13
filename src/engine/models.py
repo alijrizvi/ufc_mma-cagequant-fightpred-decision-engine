@@ -1,7 +1,10 @@
+from typing import Any, Dict, Tuple
+
 import numpy as np
-from typing import Dict, Any, Tuple
 import xgboost as xgb
+
 from src.engine.stats import FighterCombatProfile
+
 
 class FightPredictorXGB:
     """Predictive Machine Learning engine powered by XGBoost for 10-second interval probabilities."""

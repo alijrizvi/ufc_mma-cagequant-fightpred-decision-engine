@@ -1,16 +1,16 @@
 import time
-import streamlit as st
+
 import pandas as pd
-import numpy as np
 import plotly.graph_objects as go
+import streamlit as st
 from plotly.subplots import make_subplots
 
-from src.engine.stats import FighterCombatProfile
-from src.engine.simulation import OctagonSimulationEngine
-from src.engine.etl import OctagonDataEngine
 from src.engine.archetypes import FighterArchetypeEngine
-from src.engine.stances import TacticalStanceEngine, TacticalStance
+from src.engine.etl import OctagonDataEngine
 from src.engine.monte_carlo import MonteCarloRiskEngine
+from src.engine.simulation import OctagonSimulationEngine
+from src.engine.stances import TacticalStance, TacticalStanceEngine
+from src.engine.stats import FighterCombatProfile
 
 # Page Setup & Styling
 st.set_page_config(page_title="CageQuant | Octagon Decision Engine", page_icon="🥊", layout="wide")
@@ -34,6 +34,7 @@ st.markdown(
 
 st.title("🥊 CageQuant: Enterprise UFC Decision Engine")
 st.caption("10-Second Interval Telemetry | Dynamic Stance Mechanics | Monte Carlo Risk Engine ($N=1,000$)")
+st.caption("⚠️ Demo data: 4 lightweight-division profiles and SYNTHETIC outcomes. The XGBoost model proves the pipeline works, not real predictive skill. Not betting advice.")
 st.divider()
 
 # Engine Initialization
@@ -126,10 +127,14 @@ if run_sim_button:
     mc_summary = mc_engine.run_bout_simulation(profile_a, profile_b, max_rounds=max_rounds)
 
     col1, col2, col3, col4 = st.columns([1.2, 2.2, 1.4, 1.2])
-    with col1: st.metric("Single Sim Winner", single_result.winner)
-    with col2: st.metric("Method of Victory", single_result.method_of_victory)
-    with col3: st.metric("MC Expected Win % (A)", f"{mc_summary.win_rate_a * 100:.1f}%")
-    with col4: st.metric("MC Expected Win % (B)", f"{mc_summary.win_rate_b * 100:.1f}%")
+    with col1:
+        st.metric("Single Sim Winner", single_result.winner)
+    with col2:
+        st.metric("Method of Victory", single_result.method_of_victory)
+    with col3:
+        st.metric("MC Expected Win % (A)", f"{mc_summary.win_rate_a * 100:.1f}%")
+    with col4:
+        st.metric("MC Expected Win % (B)", f"{mc_summary.win_rate_b * 100:.1f}%")
 
     st.divider()
 

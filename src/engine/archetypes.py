@@ -1,13 +1,14 @@
+from typing import Any, Dict, List, Tuple
+
 import numpy as np
-import pandas as pd
-from typing import Dict, Any, List, Tuple
-from sklearn.preprocessing import StandardScaler
-from sklearn.decomposition import PCA
 from sklearn.cluster import KMeans
+from sklearn.decomposition import PCA
 from sklearn.neighbors import NearestNeighbors
+from sklearn.preprocessing import StandardScaler
 
 from src.engine.etl import OctagonDataEngine
 from src.engine.stats import FighterCombatProfile
+
 
 class FighterArchetypeEngine:
     """Unsupervised analytics engine applying PCA, K-Means clustering, and KNN peer search to fighter metrics."""

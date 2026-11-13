@@ -1,6 +1,8 @@
 import pytest
-from src.engine.stats import FighterCombatProfile
+
 from src.engine.monte_carlo import MonteCarloRiskEngine, MonteCarloSummary
+from src.engine.stats import FighterCombatProfile
+
 
 def test_monte_carlo_batch_simulation():
     """Enforces that Monte Carlo engine executes N=50 iterations and outputs bounded probability distributions."""

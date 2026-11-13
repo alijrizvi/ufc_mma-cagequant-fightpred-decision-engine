@@ -1,4 +1,3 @@
-import pytest
 from src.engine.etl import OctagonDataEngine
 from src.engine.stats import FighterCombatProfile
 

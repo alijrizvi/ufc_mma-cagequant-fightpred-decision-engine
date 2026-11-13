@@ -1,6 +1,5 @@
-import pytest
-import duckdb
 from src.engine.etl import OctagonDataEngine
+
 
 def test_duckdb_telemetry_ingestion():
     """Enforces that simulated fight interval telemetry ingests into DuckDB correctly."""

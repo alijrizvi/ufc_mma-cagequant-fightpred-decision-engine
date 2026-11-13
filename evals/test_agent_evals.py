@@ -1,21 +1,31 @@
-import pytest
+"""
+Pytest integration test executing the 20 Golden Evaluation Scenarios.
+"""
 import json
-import os
-from src.agent.copilot import AgenticCopilot
+from pathlib import Path
 
-def test_golden_eval_dataset_benchmark():
-    """Evaluates AgenticCopilot performance across golden benchmark scenario prompts."""
-    golden_path = os.path.join(os.path.dirname(__file__), "golden_dataset.json")
-    with open(golden_path, "r") as f:
-        golden_cases = json.load(f)
+import pytest
 
-    copilot = AgenticCopilot(use_mock=True)
-    
-    passed_count = 0
-    for case in golden_cases:
-        brief = copilot.generate_tactical_brief(case["fighter_a"], case["fighter_b"])
-        if brief.auditor_passed:
-            passed_count += 1
+from src.agent.copilot import DecisionCopilot
 
-    accuracy_rate = passed_count / len(golden_cases)
-    assert accuracy_rate >= 0.90
+
+def load_scenarios():
+    dataset_path = Path(__file__).parent / "golden_dataset.json"
+    with open(dataset_path, "r") as f:
+        return json.load(f)
+
+
+@pytest.mark.parametrize("scenario", load_scenarios(), ids=lambda s: s["id"])
+def test_copilot_golden_scenarios(scenario):
+    copilot = DecisionCopilot(use_mock=True)
+    result = copilot.execute_fight_analysis(
+        fighter_a=scenario["fighter_a"],
+        fighter_b=scenario["fighter_b"],
+        user_query=scenario.get("query"),
+        force_hallucination=scenario.get("force_hallucination", False),
+        num_simulations=scenario.get("num_simulations", 1000),
+    )
+    assert result.status == scenario["expected_status"], (
+        f"Scenario {scenario['id']} ({scenario['type']}) failed: "
+        f"expected {scenario['expected_status']}, got {result.status} ({result.narrative})"
+    )
