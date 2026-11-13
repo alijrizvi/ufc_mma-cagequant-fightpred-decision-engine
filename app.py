@@ -16,19 +16,54 @@ st.set_page_config(
 )
 
 @st.cache_resource(show_spinner="Initializing Medallion DuckDB Warehouse...")
-def get_warehouse() -> OctagonDataEngine:
+def get_warehouse(_version: str = "v2") -> OctagonDataEngine:
     engine = OctagonDataEngine()
     engine.seed_historical_lightweight_dataset()
-    # If your ETL has a separate build/transform step for gold tables, call it here:
-    if hasattr(engine, "build_gold_layer"):
-        engine.build_gold_layer()
+
+    # Self-healing guarantee: ensure gold star-schema views exist even on older etl.py builds
+    conn = getattr(engine, "conn", getattr(engine, "con", None))
+    if conn is not None:
+        conn.execute("CREATE SCHEMA IF NOT EXISTS gold;")
+        conn.execute("""
+            CREATE OR REPLACE VIEW gold.dim_fighter AS
+            SELECT
+                ROW_NUMBER() OVER (ORDER BY fighter_name) AS fighter_sk,
+                fighter_name,
+                'Lightweight' AS weight_class,
+                CASE
+                    WHEN takedown_success_pct >= 0.50 THEN 'Sambo / Grappling'
+                    WHEN leg_kick_power >= 18.0 THEN 'Muay Thai / Striker'
+                    ELSE 'Orthodox Boxer-Puncher'
+                END AS stance
+            FROM fighter_profiles;
+        """)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS gold.dim_bout (
+                bout_sk INTEGER PRIMARY KEY,
+                event_name VARCHAR,
+                weight_class VARCHAR,
+                scheduled_rounds INTEGER,
+                provenance VARCHAR
+            );
+        """)
+        conn.execute("""
+            CREATE OR REPLACE VIEW gold.fact_interval_telemetry AS
+            SELECT
+                ROW_NUMBER() OVER (ORDER BY fighter_name, round_num, interval_id) AS telemetry_sk,
+                1 AS bout_sk,
+                fighter_name,
+                round_num,
+                interval_id,
+                strikes_attempted,
+                strikes_landed,
+                damage_dealt
+            FROM interval_telemetry;
+        """)
     return engine
 
 
 warehouse = get_warehouse()
-db_conn = getattr(warehouse, "conn", getattr(warehouse, "con", None))
-
-roster_df = db_conn.execute(
+roster_df = warehouse.conn.execute(
     "SELECT fighter_name, weight_class, stance FROM gold.dim_fighter ORDER BY fighter_name"
 ).fetchdf()
 FIGHTER_NAMES = roster_df["fighter_name"].tolist()
