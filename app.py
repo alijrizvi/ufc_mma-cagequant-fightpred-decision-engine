@@ -16,7 +16,7 @@ st.set_page_config(
 
 
 @st.cache_resource(show_spinner="Initializing DuckDB Telemetry Engine...")
-def get_warehouse(_version: str = "v5_full_single_page") -> OctagonDataEngine:
+def get_warehouse(_version: str = "v6_animated_keys") -> OctagonDataEngine:
     """Initializes and caches the DuckDB engine with seeded Lightweight roster data."""
     engine = OctagonDataEngine()
     engine.seed_historical_lightweight_dataset()
@@ -55,7 +55,7 @@ st.caption(
     f"Receipt-Verified Agentic Copilot | Data Provenance: `{provenance_label}`"
 )
 
-# --- SIDEBAR: BOUT & SIMULATION CONTROLS ---
+# --- SIDEBAR: BOUT & ANIMATED PLAYBACK CONTROLS ---
 with st.sidebar:
     st.header("⚙️ Bout & Simulation Controls")
 
@@ -83,16 +83,23 @@ with st.sidebar:
     )
 
     st.divider()
-    live_playback = st.toggle("▶️ Live Interval Playback Mode", value=False)
-    playback_speed = st.slider(
-        "Playback Delay (sec/step)",
-        min_value=0.02,
-        max_value=0.30,
-        value=0.05,
-        step=0.02,
+    st.subheader("🎬 Animated Fight Playback")
+    live_playback = st.toggle("Enable Animated Playback", value=True)
+    speed_label = st.select_slider(
+        "Playback Speed",
+        options=["0.5x (Slow-Mo)", "1x (Tactical)", "2x (Fast)", "5x (Turbo)"],
+        value="2x (Fast)",
         disabled=not live_playback,
     )
-    st.button("🔄 Resimulate Bout", type="primary", use_container_width=True)
+    speed_map = {
+        "0.5x (Slow-Mo)": 0.20,
+        "1x (Tactical)": 0.10,
+        "2x (Fast)": 0.04,
+        "5x (Turbo)": 0.015,
+    }
+    playback_delay = speed_map[speed_label]
+
+    replay_btn = st.button("▶️ Replay / Resimulate Bout", type="primary", use_container_width=True)
 
 # --- LOAD FIGHTER PROFILES ---
 prof_a = warehouse.load_fighter_profile(fighter_a)
@@ -145,8 +152,12 @@ st.caption(
 )
 
 
-def render_charts(df_slice: pd.DataFrame) -> None:
-    """Renders the 3 primary telemetry and Monte Carlo diagnostic charts."""
+def render_charts(df_slice: pd.DataFrame, step_key: str) -> None:
+    """Renders the 3 primary telemetry and Monte Carlo diagnostic charts with unique keys."""
+    current_exchange = int(df_slice["interval_id"].iloc[-1])
+    current_round = ((current_exchange - 1) // 30) + 1
+    st.caption(f"⏱️ **Octagon Clock:** Round {current_round} • Exchange {current_exchange} / {len(logs_df)}")
+
     c1, c2, c3 = st.columns(3)
 
     # Chart 1: Live Win Probability Trajectory
@@ -157,7 +168,8 @@ def render_charts(df_slice: pd.DataFrame) -> None:
                 x=df_slice["interval_id"],
                 y=df_slice["p_win_a"] * 100.0,
                 name=fighter_a,
-                mode="lines",
+                mode="lines+markers",
+                marker=dict(size=4),
                 line=dict(width=3, color="#ef4444"),
             )
         )
@@ -166,21 +178,23 @@ def render_charts(df_slice: pd.DataFrame) -> None:
                 x=df_slice["interval_id"],
                 y=(1.0 - df_slice["p_win_a"]) * 100.0,
                 name=fighter_b,
-                mode="lines",
+                mode="lines+markers",
+                marker=dict(size=4),
                 line=dict(width=3, color="#3b82f6"),
             )
         )
         fig_prob.update_layout(
-            title="1. Win Probability Trajectory (%)",
+            title="1. Live Win Probability Trajectory (%)",
             xaxis_title="10-Sec Combat Exchange",
             yaxis_title="Win Prob (%)",
+            xaxis=dict(range=[1, max(2, len(logs_df))]),
             yaxis=dict(range=[0, 100]),
             template="plotly_dark",
             height=360,
             margin=dict(l=20, r=20, t=45, b=20),
             legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
         )
-        st.plotly_chart(fig_prob, use_container_width=True)
+        st.plotly_chart(fig_prob, use_container_width=True, key=f"prob_chart_{step_key}")
 
     # Chart 2: HP & Stamina Attrition Curves
     with c2:
@@ -224,16 +238,17 @@ def render_charts(df_slice: pd.DataFrame) -> None:
                 )
             )
         fig_attr.update_layout(
-            title="2. Health & Stamina Decay",
+            title="2. Health & Stamina Attrition",
             xaxis_title="10-Sec Combat Exchange",
             yaxis_title="Remaining Pool",
+            xaxis=dict(range=[1, max(2, len(logs_df))]),
             yaxis=dict(range=[0, 105]),
             template="plotly_dark",
             height=360,
             margin=dict(l=20, r=20, t=45, b=20),
             legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
         )
-        st.plotly_chart(fig_attr, use_container_width=True)
+        st.plotly_chart(fig_attr, use_container_width=True, key=f"attr_chart_{step_key}")
 
     # Chart 3: Monte Carlo Outcome & Finish Method Distribution
     with c3:
@@ -260,22 +275,22 @@ def render_charts(df_slice: pd.DataFrame) -> None:
             height=360,
             margin=dict(l=20, r=20, t=45, b=20),
         )
-        st.plotly_chart(fig_mc, use_container_width=True)
+        st.plotly_chart(fig_mc, use_container_width=True, key=f"mc_chart_{step_key}")
 
 
-# --- RENDER 3 CHARTS (STATIC OR LIVE PLAYBACK) ---
+# --- RENDER 3 CHARTS (ANIMATED PLAYBACK OR STATIC) ---
 chart_placeholder = st.empty()
 
 if not logs_df.empty:
     if live_playback:
-        step_size = max(1, len(logs_df) // 25)
-        for end_idx in range(step_size, len(logs_df) + step_size, step_size):
+        step_size = max(1, len(logs_df) // 30)
+        for frame_num, end_idx in enumerate(range(step_size, len(logs_df) + step_size, step_size)):
             with chart_placeholder.container():
-                render_charts(logs_df.iloc[:end_idx])
-            time.sleep(playback_speed)
+                render_charts(logs_df.iloc[:end_idx], step_key=f"frame_{frame_num}")
+            time.sleep(playback_delay)
     else:
         with chart_placeholder.container():
-            render_charts(logs_df)
+            render_charts(logs_df, step_key="static_final")
 
 st.divider()
 
