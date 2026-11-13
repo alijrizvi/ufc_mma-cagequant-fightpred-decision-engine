@@ -1,19 +1,22 @@
-import numpy as np
-DATA_PROVENANCE = "synthetic"  # shown in the UI: outcomes are simulated, not real bouts
 import duckdb
+import numpy as np
 import pandas as pd
-from typing import Dict, Any, Optional
+from typing import Any, Dict, Optional
 from src.engine.stats import FighterCombatProfile
+
+DATA_PROVENANCE = "synthetic"  # shown in the UI: outcomes are simulated, not real bouts
+
 
 class OctagonDataEngine:
     """Embedded DuckDB analytics and feature storage engine for UFC Lightweight fight telemetry."""
 
     def __init__(self, db_path: str = ":memory:"):
         self.conn = duckdb.connect(db_path)
+        self.provenance = DATA_PROVENANCE
         self._initialize_tables()
 
     def _initialize_tables(self):
-        """Initializes relational tables for fighter baselines and 10-second interval telemetry."""
+        """Initializes relational tables and Medallion views for fighter baselines and telemetry."""
         self.conn.execute("""
             CREATE TABLE IF NOT EXISTS fighter_profiles (
                 fighter_name VARCHAR PRIMARY KEY,
@@ -49,6 +52,20 @@ class OctagonDataEngine:
             )
         """)
 
+        self.conn.execute("CREATE SCHEMA IF NOT EXISTS gold;")
+        self.conn.execute("""
+            CREATE OR REPLACE VIEW gold.dim_fighter AS
+            SELECT
+                fighter_name,
+                'Lightweight' AS weight_class,
+                CASE
+                    WHEN takedown_success_pct >= 0.50 THEN 'Sambo / Grappling'
+                    WHEN leg_kick_power >= 18.0 THEN 'Muay Thai / Striker'
+                    ELSE 'Orthodox Boxer-Puncher'
+                END AS stance
+            FROM fighter_profiles;
+        """)
+
     def seed_simulated_telemetry(self):
         """Backward-compatible seeding method for test_metrics.py."""
         self.seed_historical_lightweight_dataset()
@@ -59,36 +76,59 @@ class OctagonDataEngine:
         self.conn.execute("DELETE FROM interval_telemetry")
 
         profiles_data = [
-            ('Islam Makhachev', 24.0, 22.0, 14.0, 0.60, 0.48, 0.40, 0.90, 0.85, 0.62, 14.0, 0.25, 0.025),
-            ('Carlos Prates', 26.0, 28.0, 18.0, 0.54, 0.35, 0.30, 0.55, 1.10, 0.42, 16.0, 0.35, 0.045),
-            ('Dustin Poirier', 28.0, 20.0, 16.0, 0.51, 0.42, 0.35, 0.64, 0.95, 0.36, 12.0, 0.12, 0.035),
-            ('Justin Gaethje', 30.0, 18.0, 22.0, 0.49, 0.38, 0.25, 0.75, 0.90, 0.25, 10.0, 0.05, 0.040)
+            ("Islam Makhachev", 24.0, 22.0, 14.0, 0.60, 0.48, 0.40, 0.90, 0.85, 0.62, 14.0, 0.25, 0.025),
+            ("Carlos Prates", 26.0, 28.0, 18.0, 0.54, 0.35, 0.30, 0.55, 1.10, 0.42, 16.0, 0.35, 0.045),
+            ("Dustin Poirier", 28.0, 20.0, 16.0, 0.51, 0.42, 0.35, 0.64, 0.95, 0.36, 12.0, 0.12, 0.035),
+            ("Justin Gaethje", 30.0, 18.0, 22.0, 0.49, 0.38, 0.25, 0.75, 0.90, 0.25, 10.0, 0.05, 0.040),
         ]
-        
-        self.conn.executemany("""
+
+        self.conn.executemany(
+            """
             INSERT INTO fighter_profiles VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """, profiles_data)
+            """,
+            profiles_data,
+        )
 
         telemetry_data = [
-            (1, 'Islam Makhachev', 1, 8, 5, 14.0, 4, 6, 1, 0, 3, 3),
-            (2, 'Islam Makhachev', 1, 10, 7, 18.0, 2, 8, 0, 0, 4, 3),
-            (1, 'Carlos Prates', 1, 12, 6, 16.0, 1, 0, 2, 1, 3, 1),
-            (2, 'Carlos Prates', 1, 14, 7, 20.0, 0, 0, 1, 0, 4, 1)
+            (1, "Islam Makhachev", 1, 8, 5, 14.0, 4, 6, 1, 0, 3, 3),
+            (2, "Islam Makhachev", 1, 10, 7, 18.0, 2, 8, 0, 0, 4, 3),
+            (1, "Carlos Prates", 1, 12, 6, 16.0, 1, 0, 2, 1, 3, 1),
+            (2, "Carlos Prates", 1, 14, 7, 20.0, 0, 0, 1, 0, 4, 1),
         ]
 
-        self.conn.executemany("""
+        self.conn.executemany(
+            """
             INSERT INTO interval_telemetry VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """, telemetry_data)
+            """,
+            telemetry_data,
+        )
+
+    def get_star_schema_summary(self) -> Dict[str, Any]:
+        """Returns row counts across silver/gold layers for sidebar observability."""
+        profiles_count = self.conn.execute("SELECT COUNT(*) FROM fighter_profiles").fetchone()[0]
+        telemetry_count = self.conn.execute("SELECT COUNT(*) FROM interval_telemetry").fetchone()[0]
+        gold_count = self.conn.execute("SELECT COUNT(*) FROM gold.dim_fighter").fetchone()[0]
+        return {
+            "provenance": self.provenance,
+            "table_counts": {
+                "silver.fighter_profiles": profiles_count,
+                "silver.interval_telemetry": telemetry_count,
+                "gold.dim_fighter": gold_count,
+            },
+        }
 
     def load_fighter_profile(self, fighter_name: str) -> FighterCombatProfile:
         """Queries DuckDB for a fighter's profile and returns a typed FighterCombatProfile object."""
-        row = self.conn.execute("""
+        row = self.conn.execute(
+            """
             SELECT fighter_name, punch_power, elbow_power, leg_kick_power, strike_hit_pct,
                    arm_block_pct, leg_block_pct, takedown_def_pct, durability_index,
                    takedown_success_pct, gnp_avg_damage, submission_conversion_pct, stamina_decay_rate
             FROM fighter_profiles
             WHERE fighter_name = ?
-        """, [fighter_name]).fetchone()
+            """,
+            [fighter_name],
+        ).fetchone()
 
         if not row:
             raise ValueError(f"Fighter '{fighter_name}' not found in DuckDB database.")
@@ -106,7 +146,7 @@ class OctagonDataEngine:
             takedown_success_pct=row[9],
             gnp_avg_damage=row[10],
             submission_conversion_pct=row[11],
-            stamina_decay_rate=row[12]
+            stamina_decay_rate=row[12],
         )
 
     def get_advanced_feature_metrics(self, fighter_name: str) -> Dict[str, float]:
@@ -124,7 +164,7 @@ class OctagonDataEngine:
         return {
             "xct": round(result[0] or 0.0, 4),
             "stamina_drain_ratio": round(result[1] or 0.0, 4),
-            "strike_volatility_idx": round(result[2] or 0.0, 4)
+            "strike_volatility_idx": round(result[2] or 0.0, 4),
         }
 
     def get_fighter_pillar_metrics(self, fighter_name: str) -> Dict[str, float]:
@@ -144,7 +184,7 @@ class OctagonDataEngine:
             "strike_hit_pct": round(result[0] or 0.50, 4) if result and result[0] is not None else 0.50,
             "avg_damage_per_strike": round(result[1] or 10.0, 2) if result and result[1] is not None else 10.0,
             "takedown_def_pct": round(result[2] or 0.75, 4) if result and result[2] is not None else 0.75,
-            "grapple_win_pct": round(result[3] or 0.50, 4) if result and result[3] is not None else 0.50
+            "grapple_win_pct": round(result[3] or 0.50, 4) if result and result[3] is not None else 0.50,
         }
 
     def get_training_frame(
