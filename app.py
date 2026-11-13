@@ -15,25 +15,30 @@ st.set_page_config(
     layout="wide",
 )
 
-
-@st.cache_resource
+@st.cache_resource(show_spinner="Initializing Medallion DuckDB Warehouse...")
 def get_warehouse() -> OctagonDataEngine:
     engine = OctagonDataEngine()
     engine.seed_historical_lightweight_dataset()
+    # If your ETL has a separate build/transform step for gold tables, call it here:
+    if hasattr(engine, "build_gold_layer"):
+        engine.build_gold_layer()
     return engine
 
 
 warehouse = get_warehouse()
-roster_df = warehouse.conn.execute(
+db_conn = getattr(warehouse, "conn", getattr(warehouse, "con", None))
+
+roster_df = db_conn.execute(
     "SELECT fighter_name, weight_class, stance FROM gold.dim_fighter ORDER BY fighter_name"
 ).fetchdf()
 FIGHTER_NAMES = roster_df["fighter_name"].tolist()
 
 # --- HEADER ---
+provenance_label = getattr(warehouse, "provenance", DATA_PROVENANCE).upper()
 st.title("🤖 CageQuant: Agentic UFC Decision Intelligence Engine")
 st.caption(
     f"10-Second Discrete Combat Telemetry • Calibrated XGBoost • Monte Carlo Risk Engine • "
-    f"Receipt-Verified Agentic Copilot | Data Provenance: `{warehouse.provenance.upper()}`"
+    f"Receipt-Verified Agentic Copilot | Data Provenance: `{provenance_label}`"
 )
 
 # --- SIDEBAR CONTROLS & MEDALLION OBSERVABILITY ---
