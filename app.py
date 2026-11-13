@@ -16,7 +16,7 @@ st.set_page_config(
 
 
 @st.cache_resource(show_spinner="Initializing DuckDB Telemetry Engine...")
-def get_warehouse(_version: str = "v4_no_stances") -> OctagonDataEngine:
+def get_warehouse(_version: str = "v5_full_single_page") -> OctagonDataEngine:
     """Initializes and caches the DuckDB engine with seeded Lightweight roster data."""
     engine = OctagonDataEngine()
     engine.seed_historical_lightweight_dataset()
@@ -45,7 +45,7 @@ roster_df = warehouse.conn.execute(
     "SELECT fighter_name, weight_class, stance FROM gold.dim_fighter ORDER BY fighter_name"
 ).fetchdf()
 FIGHTER_NAMES = roster_df["fighter_name"].tolist()
-STANCE_MAP = dict(zip(roster_df["fighter_name"], roster_df["stance"]))
+ARCHETYPE_MAP = dict(zip(roster_df["fighter_name"], roster_df["stance"]))
 
 # --- HEADER ---
 provenance_label = getattr(warehouse, "provenance", DATA_PROVENANCE).upper()
@@ -61,12 +61,12 @@ with st.sidebar:
 
     default_a = FIGHTER_NAMES.index("Islam Makhachev") if "Islam Makhachev" in FIGHTER_NAMES else 0
     fighter_a = st.selectbox("Fighter A (Red Corner)", FIGHTER_NAMES, index=default_a)
-    st.caption(f"Archetype: **{STANCE_MAP.get(fighter_a, 'MMA')}**")
+    st.caption(f"Archetype: **{ARCHETYPE_MAP.get(fighter_a, 'MMA')}**")
 
     available_b = [f for f in FIGHTER_NAMES if f != fighter_a]
     default_b = available_b.index("Ilia Topuria") if "Ilia Topuria" in available_b else 0
     fighter_b = st.selectbox("Fighter B (Blue Corner)", available_b, index=default_b)
-    st.caption(f"Archetype: **{STANCE_MAP.get(fighter_b, 'MMA')}**")
+    st.caption(f"Archetype: **{ARCHETYPE_MAP.get(fighter_b, 'MMA')}**")
 
     st.divider()
 
@@ -74,8 +74,12 @@ with st.sidebar:
     num_simulations = st.slider(
         "Monte Carlo Simulations (N)", min_value=50, max_value=500, value=250, step=50
     )
-    max_intervals_cap = st.slider(
-        "Max Telemetry Intervals", min_value=30, max_value=1000, value=150, step=30
+    max_exchanges = st.slider(
+        "Max Combat Exchanges (10s Steps)",
+        min_value=30,
+        max_value=150,
+        value=max_rounds * 30,
+        step=30,
     )
 
     st.divider()
@@ -101,7 +105,7 @@ single_bout = sim_engine.run_full_fight(prof_a, prof_b, max_rounds=max_rounds, s
 mc_engine = MonteCarloRiskEngine(num_simulations=num_simulations)
 mc_summary = mc_engine.run_bout_simulation(prof_a, prof_b, max_rounds=max_rounds)
 
-logs_df = pd.DataFrame([vars(log) for log in single_bout.interval_logs]).head(max_intervals_cap)
+logs_df = pd.DataFrame([vars(log) for log in single_bout.interval_logs]).head(max_exchanges)
 
 # --- TOP PROBABILITY BREAKDOWN METRICS ---
 st.subheader("📊 Stochastic Win & Method Probability Breakdown")
@@ -125,10 +129,18 @@ m1.metric(f"{fighter_a} Win Prob", f"{win_rate_a:.1f}%")
 m2.metric(f"{fighter_b} Win Prob", f"{win_rate_b:.1f}%")
 m3.metric("KO / TKO Finish Prob", f"{ko_pct:.1f}%")
 m4.metric("Submission Prob", f"{sub_pct:.1f}%")
-m5.metric("Decision / Avg End", f"{dec_pct:.1f}% • Int {mc_summary.avg_finish_interval:.0f}")
+m5.metric("Decision / Avg End", f"{dec_pct:.1f}% • Exchange {mc_summary.avg_finish_interval:.0f}")
+
+bout_winner = getattr(single_bout, "winner", "Draw")
+bout_method = (
+    getattr(single_bout, "method", None)
+    or getattr(single_bout, "win_method", None)
+    or getattr(single_bout, "finish_method", None)
+    or getattr(single_bout, "outcome", "Decision / Finish")
+)
 
 st.caption(
-    f"**Sampled Trajectory Outcome:** `{single_bout.winner}` via `{single_bout.method}` "
+    f"**Sampled Trajectory Outcome:** `{bout_winner}` via `{bout_method}` "
     f"(Simulated across {num_simulations} Monte Carlo iterations)"
 )
 
@@ -160,7 +172,7 @@ def render_charts(df_slice: pd.DataFrame) -> None:
         )
         fig_prob.update_layout(
             title="1. Win Probability Trajectory (%)",
-            xaxis_title="10-Sec Interval",
+            xaxis_title="10-Sec Combat Exchange",
             yaxis_title="Win Prob (%)",
             yaxis=dict(range=[0, 100]),
             template="plotly_dark",
@@ -213,7 +225,7 @@ def render_charts(df_slice: pd.DataFrame) -> None:
             )
         fig_attr.update_layout(
             title="2. Health & Stamina Decay",
-            xaxis_title="10-Sec Interval",
+            xaxis_title="10-Sec Combat Exchange",
             yaxis_title="Remaining Pool",
             yaxis=dict(range=[0, 105]),
             template="plotly_dark",
