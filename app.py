@@ -7,7 +7,6 @@ from src.agent.copilot import DecisionCopilot
 from src.engine.etl import DATA_PROVENANCE, OctagonDataEngine
 from src.engine.monte_carlo import MonteCarloRiskEngine
 from src.engine.simulation import OctagonSimulationEngine
-from src.engine.stances import TacticalStanceEngine
 
 st.set_page_config(
     page_title="CageQuant | UFC Decision Intelligence Engine",
@@ -17,7 +16,8 @@ st.set_page_config(
 
 
 @st.cache_resource(show_spinner="Initializing DuckDB Telemetry Engine...")
-def get_warehouse(_version: str = "v3") -> OctagonDataEngine:
+def get_warehouse(_version: str = "v4_no_stances") -> OctagonDataEngine:
+    """Initializes and caches the DuckDB engine with seeded Lightweight roster data."""
     engine = OctagonDataEngine()
     engine.seed_historical_lightweight_dataset()
 
@@ -45,9 +45,7 @@ roster_df = warehouse.conn.execute(
     "SELECT fighter_name, weight_class, stance FROM gold.dim_fighter ORDER BY fighter_name"
 ).fetchdf()
 FIGHTER_NAMES = roster_df["fighter_name"].tolist()
-
-stance_engine = TacticalStanceEngine()
-AVAILABLE_STANCES = list(stance_engine.STANCE_MODIFIERS.keys())
+STANCE_MAP = dict(zip(roster_df["fighter_name"], roster_df["stance"]))
 
 # --- HEADER ---
 provenance_label = getattr(warehouse, "provenance", DATA_PROVENANCE).upper()
@@ -59,18 +57,16 @@ st.caption(
 
 # --- SIDEBAR: BOUT & SIMULATION CONTROLS ---
 with st.sidebar:
-    st.header("⚙️ Bout & Tactical Controls")
+    st.header("⚙️ Bout & Simulation Controls")
 
     default_a = FIGHTER_NAMES.index("Islam Makhachev") if "Islam Makhachev" in FIGHTER_NAMES else 0
     fighter_a = st.selectbox("Fighter A (Red Corner)", FIGHTER_NAMES, index=default_a)
-    stance_a = st.selectbox("Fighter A Tactical Stance", AVAILABLE_STANCES, index=0)
-
-    st.divider()
+    st.caption(f"Archetype: **{STANCE_MAP.get(fighter_a, 'MMA')}**")
 
     available_b = [f for f in FIGHTER_NAMES if f != fighter_a]
     default_b = available_b.index("Ilia Topuria") if "Ilia Topuria" in available_b else 0
     fighter_b = st.selectbox("Fighter B (Blue Corner)", available_b, index=default_b)
-    stance_b = st.selectbox("Fighter B Tactical Stance", AVAILABLE_STANCES, index=0)
+    st.caption(f"Archetype: **{STANCE_MAP.get(fighter_b, 'MMA')}**")
 
     st.divider()
 
@@ -92,14 +88,11 @@ with st.sidebar:
         step=0.02,
         disabled=not live_playback,
     )
-    rerun_sim = st.button("🔄 Resimulate Bout", type="primary", use_container_width=True)
+    st.button("🔄 Resimulate Bout", type="primary", use_container_width=True)
 
-# --- LOAD & APPLY TACTICAL STANCES ---
-base_prof_a = warehouse.load_fighter_profile(fighter_a)
-base_prof_b = warehouse.load_fighter_profile(fighter_b)
-
-prof_a = stance_engine.apply_stance(base_prof_a, stance_a)
-prof_b = stance_engine.apply_stance(base_prof_b, stance_b)
+# --- LOAD FIGHTER PROFILES ---
+prof_a = warehouse.load_fighter_profile(fighter_a)
+prof_b = warehouse.load_fighter_profile(fighter_b)
 
 # --- RUN SIMULATION & MONTE CARLO ---
 sim_engine = OctagonSimulationEngine(db_engine=warehouse)
@@ -115,9 +108,7 @@ st.subheader("📊 Stochastic Win & Method Probability Breakdown")
 
 win_rate_a = mc_summary.win_rate_a * 100.0
 win_rate_b = mc_summary.win_rate_b * 100.0
-draw_rate = max(0.0, 100.0 - win_rate_a - win_rate_b)
 
-# Extract method breakdown safely if exposed by mc_summary, otherwise derive from bout distribution
 method_counts = getattr(mc_summary, "method_breakdown", None)
 if isinstance(method_counts, dict) and method_counts:
     ko_pct = method_counts.get("KO/TKO", 0.0) * 100.0
@@ -130,8 +121,8 @@ else:
     dec_pct = (1.0 - finish_ratio) * 100.0
 
 m1, m2, m3, m4, m5 = st.columns(5)
-m1.metric(f"{fighter_a} ({stance_a})", f"{win_rate_a:.1f}%")
-m2.metric(f"{fighter_b} ({stance_b})", f"{win_rate_b:.1f}%")
+m1.metric(f"{fighter_a} Win Prob", f"{win_rate_a:.1f}%")
+m2.metric(f"{fighter_b} Win Prob", f"{win_rate_b:.1f}%")
 m3.metric("KO / TKO Finish Prob", f"{ko_pct:.1f}%")
 m4.metric("Submission Prob", f"{sub_pct:.1f}%")
 m5.metric("Decision / Avg End", f"{dec_pct:.1f}% • Int {mc_summary.avg_finish_interval:.0f}")
@@ -290,8 +281,8 @@ with col_q:
     user_prompt = st.text_input(
         "Ask the Copilot",
         value=(
-            f"Compare the finish risk and stamina efficiency between {fighter_a} ({stance_a}) "
-            f"and {fighter_b} ({stance_b}) over {max_rounds} rounds."
+            f"Compare the finish risk and stamina efficiency between {fighter_a} "
+            f"and {fighter_b} over {max_rounds} rounds."
         ),
     )
 with col_opts:
