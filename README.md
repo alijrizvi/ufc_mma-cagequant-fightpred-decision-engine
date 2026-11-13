@@ -1,10 +1,10 @@
 # 🥊 [Production-Grade UFC Decision Intelligence Platform](https://ufc-mma-cagequant-fightpred-decision-engine.streamlit.app/)
 
-[![CI Pipeline](https://github.com)](https://github.com)
-[![Python Version](https://shields.io)](https://www.python.org/)
+[![Python Version](https://shields.io)](https://python.org)
+[![Framework](https://shields.io)](https://modelcontextprotocol.io)
 [![Framework](https://img.shields.io/badge/Agentic%20AI-FastMCP-green)](https://modelcontextprotocol.io/)
-[![Testing](https://shields.io)](https://docs.pytest.org/)
-[![Docker](https://shields.io)](https://www.docker.com/)
+[![Testing](https://shields.io)](https://pytest.org)
+[![Docker](https://shields.io)](https://docker.com)
 
 An enterprise-grade, TDD-backed Decision Intelligence Engine designed for 10-second discrete combat interval telemetry forecasting, stochastic Monte Carlo risk modeling, and receipt-verified Agentic Analytics.
 
