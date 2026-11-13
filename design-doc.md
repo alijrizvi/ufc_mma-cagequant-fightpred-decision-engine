@@ -2,7 +2,7 @@
 
 ## 1. System Overview & Component Architecture
 
-CageQuant is a modular decision intelligence framework for 10-second discrete fight simulation, probability modeling, stochastic risk calculation, and verified agentic analytics.
+UFC Fight Predictor Engine, inspired and powered by _CageQuant_, is a modular decision intelligence framework for 10-second discrete fight simulation, probability modeling, stochastic risk calculation, and verified agentic analytics.
 
 ```text
 ┌─────────────────────────────────────────────────────────────────────────────┐
