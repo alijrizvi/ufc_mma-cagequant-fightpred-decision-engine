@@ -52,7 +52,7 @@ st.markdown(
 
 
 @st.cache_resource(show_spinner="Initializing DuckDB Telemetry Engine...")
-def get_warehouse(_version: str = "v7_floating_copilot_stacked") -> OctagonDataEngine:
+def get_warehouse(_version: str = "v8_cagebot_cum_stack") -> OctagonDataEngine:
     """Initializes and caches the DuckDB engine with seeded Lightweight roster data."""
     engine = OctagonDataEngine()
     engine.seed_historical_lightweight_dataset()
@@ -150,10 +150,24 @@ mc_summary = mc_engine.run_bout_simulation(prof_a, prof_b, max_rounds=max_rounds
 
 logs_df = pd.DataFrame([vars(log) for log in single_bout.interval_logs]).head(max_exchanges).copy()
 
-# Compute cumulative damage output for the stacked bar accumulator
+# Compute monotonically ascending cumulative damage output per fighter
 if not logs_df.empty:
-    logs_df["cum_dmg_a"] = (100.0 - logs_df["fighter_b_hp"]).clip(lower=0.0)
-    logs_df["cum_dmg_b"] = (100.0 - logs_df["fighter_a_hp"]).clip(lower=0.0)
+    if "damage_dealt_a" in logs_df.columns and "damage_dealt_b" in logs_df.columns:
+        logs_df["cum_dmg_a"] = logs_df["damage_dealt_a"].clip(lower=0.0).cumsum()
+        logs_df["cum_dmg_b"] = logs_df["damage_dealt_b"].clip(lower=0.0).cumsum()
+    else:
+        step_dmg_a = (
+            -logs_df["fighter_b_hp"]
+            .diff()
+            .fillna(100.0 - logs_df["fighter_b_hp"].iloc[0])
+        ).clip(lower=0.0)
+        step_dmg_b = (
+            -logs_df["fighter_a_hp"]
+            .diff()
+            .fillna(100.0 - logs_df["fighter_a_hp"].iloc[0])
+        ).clip(lower=0.0)
+        logs_df["cum_dmg_a"] = step_dmg_a.cumsum()
+        logs_df["cum_dmg_b"] = step_dmg_b.cumsum()
 
 # --- TOP PROBABILITY BREAKDOWN METRICS ---
 st.subheader("📊 Stochastic Win & Method Probability Breakdown")
@@ -193,8 +207,10 @@ st.caption(
 )
 
 
-def build_figures(df_slice: pd.DataFrame, total_len: int) -> Tuple[go.Figure, go.Figure]:
-    """Constructs the live Win Probability Trajectory and Stacked Damage/HP Accumulator figures."""
+def build_figures(
+    df_slice: pd.DataFrame, total_len: int, max_total_dmg: float
+) -> Tuple[go.Figure, go.Figure]:
+    """Constructs the live Win Probability Trajectory and 2-Fighter Cumulative Damage Stacked Bars."""
     x_max = max(2, total_len)
 
     # 1. Live Win Probability Trajectory
@@ -231,13 +247,13 @@ def build_figures(df_slice: pd.DataFrame, total_len: int) -> Tuple[go.Figure, go
         legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
     )
 
-    # 2. Stacked Bar Accumulator: Cumulative Damage Output & Remaining HP Pools
+    # 2. Cumulative Sum of Damage Output Differentiated by Fighter (Stacked Bar)
     fig_stack = go.Figure()
     fig_stack.add_trace(
         go.Bar(
             x=df_slice["interval_id"],
             y=df_slice["cum_dmg_a"],
-            name=f"{fighter_a} Cum. Damage Dealt",
+            name=f"{fighter_a} (Red Corner)",
             marker_color="#ef4444",
         )
     )
@@ -245,33 +261,18 @@ def build_figures(df_slice: pd.DataFrame, total_len: int) -> Tuple[go.Figure, go
         go.Bar(
             x=df_slice["interval_id"],
             y=df_slice["cum_dmg_b"],
-            name=f"{fighter_b} Cum. Damage Dealt",
+            name=f"{fighter_b} (Blue Corner)",
             marker_color="#3b82f6",
-        )
-    )
-    fig_stack.add_trace(
-        go.Bar(
-            x=df_slice["interval_id"],
-            y=df_slice["fighter_a_hp"],
-            name=f"{fighter_a} Remaining HP",
-            marker_color="rgba(252, 165, 165, 0.35)",
-        )
-    )
-    fig_stack.add_trace(
-        go.Bar(
-            x=df_slice["interval_id"],
-            y=df_slice["fighter_b_hp"],
-            name=f"{fighter_b} Remaining HP",
-            marker_color="rgba(147, 197, 253, 0.35)",
         )
     )
     fig_stack.update_layout(
         barmode="stack",
-        title="2. Stacked Damage Output & HP Pool Accumulator",
+        bargap=0.18,
+        title="2. Cumulative Damage Output by Fighter (Stacked)",
         xaxis_title="10-Sec Combat Exchange",
-        yaxis_title="Cumulative Damage + Remaining HP",
+        yaxis_title="Cumulative Damage Dealt",
         xaxis=dict(range=[0.5, x_max + 0.5]),
-        yaxis=dict(range=[0, 210]),
+        yaxis=dict(range=[0, max(100.0, max_total_dmg * 1.1)]),
         template="plotly_dark",
         height=430,
         margin=dict(l=20, r=20, t=50, b=25),
@@ -289,6 +290,8 @@ slot_stack = col_right.empty()
 
 if not logs_df.empty:
     total_steps = len(logs_df)
+    max_combined_dmg = float((logs_df["cum_dmg_a"] + logs_df["cum_dmg_b"]).max())
+
     if live_playback:
         step_size = max(1, total_steps // 35)
         frame_indices = list(range(step_size, total_steps, step_size))
@@ -302,7 +305,7 @@ if not logs_df.empty:
             clock_slot.caption(
                 f"⏱️ **Live Octagon Clock:** Round {curr_rd} • Exchange {curr_ex} / {total_steps}"
             )
-            fig_prob, fig_stack = build_figures(df_slice, total_steps)
+            fig_prob, fig_stack = build_figures(df_slice, total_steps, max_combined_dmg)
             slot_prob.plotly_chart(fig_prob, use_container_width=True, key=f"prob_live_{frame_idx}")
             slot_stack.plotly_chart(fig_stack, use_container_width=True, key=f"stack_live_{frame_idx}")
             time.sleep(playback_delay)
@@ -312,55 +315,69 @@ if not logs_df.empty:
         clock_slot.caption(
             f"⏱️ **Final Octagon Clock:** Round {curr_rd} • Exchange {curr_ex} / {total_steps}"
         )
-        fig_prob, fig_stack = build_figures(logs_df, total_steps)
+        fig_prob, fig_stack = build_figures(logs_df, total_steps, max_combined_dmg)
         slot_prob.plotly_chart(fig_prob, use_container_width=True, key="prob_static")
         slot_stack.plotly_chart(fig_stack, use_container_width=True, key="stack_static")
 
 
 # ==============================================================================
-# FLOATING ROBOT AGENTIC DECISION COPILOT (BOTTOM-RIGHT POPOVER)
+# FLOATING PERSONAL SIMULATOR ASSISTANT: "CAGEBOT"
 # ==============================================================================
-with st.popover("🤖", help="Open CageQuant Agentic Decision Copilot"):
-    st.markdown("### 🤖 CageQuant Tactical Copilot")
-    st.caption(
-        "Receipt-Verified FastMCP Analyst • Numeric claims verified against ground truth (±1.5%)."
-    )
+with st.popover("🤖", help="Chat with CageBot — Your Personal Simulator Assistant"):
+    st.markdown("### 🤖 CageBot • Simulator Assistant")
+
+    with st.chat_message("assistant"):
+        st.markdown(
+            f"Hey! I'm **CageBot**, your personal assistant for this simulator. "
+            f"We're currently looking at **{fighter_a}** vs. **{fighter_b}** ({max_rounds} rounds, "
+            f"{num_simulations} Monte Carlo sims). What can I do for you? **AMA!**"
+        )
 
     user_prompt = st.text_area(
-        "Ask about matchup risk, pacing, or finish probability:",
-        value=(
-            f"Compare the finish risk and stamina efficiency between {fighter_a} "
-            f"and {fighter_b} over {max_rounds} rounds."
-        ),
-        height=85,
+        "Your Question:",
+        placeholder=f"e.g., Who has the late-round cardio edge between {fighter_a} and {fighter_b}?",
+        height=80,
+        label_visibility="collapsed",
     )
 
     col_c1, col_c2 = st.columns(2)
     with col_c1:
-        use_mock = st.checkbox("Mock Narrator ($0 Cost)", value=True)
+        use_mock = st.checkbox("Fast Local Mode ($0)", value=True)
     with col_c2:
         force_hallucination = st.checkbox("Test Auditor Gate", value=False)
 
-    if st.button("🧠 Analyze Matchup", type="primary", use_container_width=True):
+    if st.button("💬 Ask CageBot", type="primary", use_container_width=True):
+        active_query = user_prompt.strip() or (
+            f"Give me a friendly, clear breakdown of win probabilities, finish risks, and pacing "
+            f"between {fighter_a} and {fighter_b} across {max_rounds} rounds."
+        )
+
+        with st.chat_message("user"):
+            st.markdown(active_query)
+
         copilot = DecisionCopilot(use_mock=use_mock)
         result = copilot.execute_fight_analysis(
             fighter_a=fighter_a,
             fighter_b=fighter_b,
-            user_query=user_prompt,
+            user_query=active_query,
             force_hallucination=force_hallucination,
             num_simulations=num_simulations,
         )
 
-        if result.status == "success":
-            st.success("✅ Auditor Passed (100% Ground-Truth Verified)")
-            st.markdown(result.narrative)
-        else:
-            st.error(f"🛑 Blocked by Auditor ({result.status.upper()})")
-            st.markdown(result.narrative)
-            if result.violations:
-                for violation in result.violations:
-                    st.warning(f"- {violation}")
+        with st.chat_message("assistant"):
+            if result.status == "success":
+                st.markdown(
+                    f"Here's what the simulation data shows for **{fighter_a} vs. {fighter_b}**:\n\n"
+                    f"{result.narrative}"
+                )
+                st.caption("✅ *Verified against Monte Carlo & DuckDB ground-truth receipt (±1.5% tolerance).*")
+            else:
+                st.error(f"🛑 Hold on—my Receipt Auditor flagged an issue ({result.status.upper()}):")
+                st.markdown(result.narrative)
+                if result.violations:
+                    for violation in result.violations:
+                        st.warning(f"- {violation}")
 
         if result.ground_truth:
-            with st.expander("🧾 View MCP Ground-Truth Receipt"):
+            with st.expander("🧾 View Underlying Simulation Receipt"):
                 st.json(result.ground_truth)
