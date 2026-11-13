@@ -1,14 +1,14 @@
 import duckdb
 import numpy as np
 import pandas as pd
-from typing import Any, Dict, Optional
+from typing import Any, Dict
 from src.engine.stats import FighterCombatProfile
 
 DATA_PROVENANCE = "synthetic"  # shown in the UI: outcomes are simulated, not real bouts
 
 
 class OctagonDataEngine:
-    """Embedded DuckDB analytics and feature storage engine for UFC Lightweight fight telemetry."""
+    """Embedded DuckDB analytics and Medallion star-schema engine for UFC fight telemetry."""
 
     def __init__(self, db_path: str = ":memory:"):
         self.conn = duckdb.connect(db_path)
@@ -16,7 +16,7 @@ class OctagonDataEngine:
         self._initialize_tables()
 
     def _initialize_tables(self):
-        """Initializes relational tables and Medallion views for fighter baselines and telemetry."""
+        """Initializes silver relational tables and gold star-schema tables/views."""
         self.conn.execute("""
             CREATE TABLE IF NOT EXISTS fighter_profiles (
                 fighter_name VARCHAR PRIMARY KEY,
@@ -53,17 +53,48 @@ class OctagonDataEngine:
         """)
 
         self.conn.execute("CREATE SCHEMA IF NOT EXISTS gold;")
+
         self.conn.execute("""
             CREATE OR REPLACE VIEW gold.dim_fighter AS
             SELECT
+                ROW_NUMBER() OVER (ORDER BY fighter_name) AS fighter_sk,
                 fighter_name,
                 'Lightweight' AS weight_class,
                 CASE
                     WHEN takedown_success_pct >= 0.50 THEN 'Sambo / Grappling'
                     WHEN leg_kick_power >= 18.0 THEN 'Muay Thai / Striker'
                     ELSE 'Orthodox Boxer-Puncher'
-                END AS stance
+                END AS stance,
+                strike_hit_pct,
+                takedown_def_pct,
+                durability_index
             FROM fighter_profiles;
+        """)
+
+        self.conn.execute("""
+            CREATE TABLE IF NOT EXISTS gold.dim_bout (
+                bout_sk INTEGER PRIMARY KEY,
+                event_name VARCHAR,
+                weight_class VARCHAR,
+                scheduled_rounds INTEGER,
+                provenance VARCHAR
+            )
+        """)
+
+        self.conn.execute("""
+            CREATE OR REPLACE VIEW gold.fact_interval_telemetry AS
+            SELECT
+                ROW_NUMBER() OVER (ORDER BY fighter_name, round_num, interval_id) AS telemetry_sk,
+                1 AS bout_sk,
+                fighter_name,
+                round_num,
+                interval_id,
+                strikes_attempted,
+                strikes_landed,
+                damage_dealt,
+                clinch_seconds,
+                ground_seconds
+            FROM interval_telemetry;
         """)
 
     def seed_simulated_telemetry(self):
@@ -71,12 +102,15 @@ class OctagonDataEngine:
         self.seed_historical_lightweight_dataset()
 
     def seed_historical_lightweight_dataset(self):
-        """Populates historical baseline stats for UFC Lightweight division competitors."""
+        """Populates calibrated baseline stats for 6 Lightweight competitors and bout metadata."""
         self.conn.execute("DELETE FROM fighter_profiles")
         self.conn.execute("DELETE FROM interval_telemetry")
+        self.conn.execute("DELETE FROM gold.dim_bout")
 
         profiles_data = [
             ("Islam Makhachev", 24.0, 22.0, 14.0, 0.60, 0.48, 0.40, 0.90, 0.85, 0.62, 14.0, 0.25, 0.025),
+            ("Ilia Topuria", 29.0, 24.0, 17.0, 0.56, 0.45, 0.36, 0.92, 0.94, 0.52, 15.0, 0.30, 0.028),
+            ("Arman Tsarukyan", 25.0, 23.0, 16.0, 0.55, 0.44, 0.38, 0.86, 0.90, 0.58, 14.5, 0.20, 0.027),
             ("Carlos Prates", 26.0, 28.0, 18.0, 0.54, 0.35, 0.30, 0.55, 1.10, 0.42, 16.0, 0.35, 0.045),
             ("Dustin Poirier", 28.0, 20.0, 16.0, 0.51, 0.42, 0.35, 0.64, 0.95, 0.36, 12.0, 0.12, 0.035),
             ("Justin Gaethje", 30.0, 18.0, 22.0, 0.49, 0.38, 0.25, 0.75, 0.90, 0.25, 10.0, 0.05, 0.040),
@@ -92,6 +126,8 @@ class OctagonDataEngine:
         telemetry_data = [
             (1, "Islam Makhachev", 1, 8, 5, 14.0, 4, 6, 1, 0, 3, 3),
             (2, "Islam Makhachev", 1, 10, 7, 18.0, 2, 8, 0, 0, 4, 3),
+            (1, "Ilia Topuria", 1, 11, 7, 19.0, 2, 2, 1, 0, 2, 2),
+            (2, "Ilia Topuria", 1, 13, 8, 22.0, 1, 1, 1, 0, 2, 1),
             (1, "Carlos Prates", 1, 12, 6, 16.0, 1, 0, 2, 1, 3, 1),
             (2, "Carlos Prates", 1, 14, 7, 20.0, 0, 0, 1, 0, 4, 1),
         ]
@@ -103,17 +139,28 @@ class OctagonDataEngine:
             telemetry_data,
         )
 
+        self.conn.execute(
+            """
+            INSERT INTO gold.dim_bout VALUES (1, 'UFC Championship Telemetry Benchmark', 'Lightweight', 5, ?)
+            """,
+            [self.provenance],
+        )
+
     def get_star_schema_summary(self) -> Dict[str, Any]:
         """Returns row counts across silver/gold layers for sidebar observability."""
         profiles_count = self.conn.execute("SELECT COUNT(*) FROM fighter_profiles").fetchone()[0]
         telemetry_count = self.conn.execute("SELECT COUNT(*) FROM interval_telemetry").fetchone()[0]
-        gold_count = self.conn.execute("SELECT COUNT(*) FROM gold.dim_fighter").fetchone()[0]
+        dim_fighter_count = self.conn.execute("SELECT COUNT(*) FROM gold.dim_fighter").fetchone()[0]
+        dim_bout_count = self.conn.execute("SELECT COUNT(*) FROM gold.dim_bout").fetchone()[0]
+        fact_count = self.conn.execute("SELECT COUNT(*) FROM gold.fact_interval_telemetry").fetchone()[0]
         return {
             "provenance": self.provenance,
             "table_counts": {
                 "silver.fighter_profiles": profiles_count,
                 "silver.interval_telemetry": telemetry_count,
-                "gold.dim_fighter": gold_count,
+                "gold.dim_fighter": dim_fighter_count,
+                "gold.dim_bout": dim_bout_count,
+                "gold.fact_interval_telemetry": fact_count,
             },
         }
 
